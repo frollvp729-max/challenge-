@@ -55,17 +55,28 @@ npm run build && npm start                       # http://localhost:3000/app/ и
 
 Тесты: `npm test` (подсчёт очков и серий; сквозной сценарий «оплата → отчёт → рейтинг» запускается, если задан `DATABASE_URL`).
 
-## Деплой
+## Деплой на vitalprobiznes.ru
 
-Нужен сервер с HTTPS (Telegram открывает Mini App только по HTTPS). Самый простой путь — VPS + Docker:
+Нужен VPS с Ubuntu 22.04 или 24.04 (1 ГБ памяти хватит) и домен, направленный на него.
+
+1. У регистратора домена создай A-записи `vitalprobiznes.ru` и `www` на IP сервера.
+2. На сервере выполни одну команду (подставь адрес репозитория):
 
 ```bash
-cp apps/server/.env.example apps/server/.env   # заполни
-docker compose up -d --build
-docker compose exec app npx tsx prisma/seed.ts  # один раз
+curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/install.sh | sudo bash -s -- https://github.com/<owner>/<repo>.git vitalprobiznes.ru
 ```
 
-Перед ним нужен любой прокси с HTTPS (Caddy, nginx + certbot) на порт 3000. Кнопку меню с Mini App бот ставит сам при старте.
+Скрипт поставит Docker, скачает код, спросит имя бота, токен бота, ключ Tribute и пароль админки (они вводятся скрыто и сохраняются только на сервере) и запустит всё: PostgreSQL, приложение и Caddy, который сам получит HTTPS-сертификат. Миграции и начальные данные применяются при каждом старте, повторно данные не дублируются.
+
+Если репозиторий приватный, в адресе для `git clone` используй токен GitHub только на чтение: `https://<token>@github.com/<owner>/<repo>.git`.
+
+Обновление: `cd /opt/challenge-platform && git pull && docker compose up -d --build`. Логи: `docker compose logs -f app`.
+
+## Бот и Mini App в Telegram
+
+1. В @BotFather: `/newbot`, имя (например «30 дней без сахара») и username, оканчивающийся на `bot`. Токен вводится только в скрипт установки на сервере.
+2. Кнопку меню «Челлендж», которая открывает Mini App `https://vitalprobiznes.ru/app/`, бот ставит сам при запуске. Команды `/start`, `/app`, `/help` тоже.
+3. По желанию: `/newapp` в @BotFather с адресом `https://vitalprobiznes.ru/app/` даст прямую ссылку вида `t.me/<бот>/<app>` для рекламы.
 
 ## Переменные окружения
 
