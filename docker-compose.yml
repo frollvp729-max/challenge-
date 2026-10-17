@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: challenges
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  app:
+    build: .
+    env_file: apps/server/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/challenges
+      UPLOADS_DIR: /data/uploads
+    volumes:
+      - uploads:/data/uploads
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads:

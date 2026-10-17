@@ -1,0 +1,19 @@
+{
+  "name": "challenge-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Платформа 30-дневных челленджей в Telegram: бот + Mini App + API + админка",
+  "workspaces": ["apps/server", "apps/miniapp", "apps/admin"],
+  "scripts": {
+    "dev": "npm run dev -w apps/server",
+    "dev:miniapp": "npm run dev -w apps/miniapp",
+    "dev:admin": "npm run dev -w apps/admin",
+    "build": "npm run build -w apps/miniapp && npm run build -w apps/admin && npm run build -w apps/server",
+    "start": "npm run start -w apps/server",
+    "db:migrate": "npm run db:migrate -w apps/server",
+    "db:deploy": "npm run db:deploy -w apps/server",
+    "db:seed": "npm run db:seed -w apps/server",
+    "test": "npm run test -w apps/server",
+    "typecheck": "npm run typecheck --workspaces"
+  }
+}
