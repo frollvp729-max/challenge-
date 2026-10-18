@@ -37,6 +37,12 @@ if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sh
 fi
 systemctl enable --now docker >/dev/null 2>&1 || true
+# Docker из пакетов Ubuntu (docker.io) идёт без compose: доставляем его
+if ! docker compose version >/dev/null 2>&1; then
+  echo "==> Ставлю docker compose"
+  apt-get update -y >/dev/null
+  apt-get install -y docker-compose-plugin 2>/dev/null || apt-get install -y docker-compose-v2
+fi
 
 # Caddy получает HTTPS-сертификат через порты 80 и 443
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
