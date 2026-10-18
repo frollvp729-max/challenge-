@@ -60,22 +60,22 @@ npm run build && npm start                       # http://localhost:3000/app/ и
 Нужен VPS с Ubuntu 22.04 или 24.04 (1 ГБ памяти хватит) и домен, направленный на него.
 
 1. У регистратора домена создай A-записи `vitalprobiznes.ru` и `www` на IP сервера.
-2. На сервере выполни одну команду (подставь адрес репозитория):
+2. На сервере выполни одну команду:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/install.sh | sudo bash -s -- https://github.com/<owner>/<repo>.git vitalprobiznes.ru
+curl -fsSL https://raw.githubusercontent.com/frollvp729-max/challenge-/main/deploy/install.sh | sudo bash
 ```
 
-Скрипт поставит Docker, скачает код, спросит имя бота, токен бота, ключ Tribute и пароль админки (они вводятся скрыто и сохраняются только на сервере) и запустит всё: PostgreSQL, приложение и Caddy, который сам получит HTTPS-сертификат. Миграции и начальные данные применяются при каждом старте, повторно данные не дублируются.
+Скрипт поставит Docker, скачает код, спросит имя бота (по умолчанию `sugar_free_Bot`), токен бота, ключ Tribute и пароль админки (они вводятся скрыто и сохраняются только на сервере) и запустит всё: PostgreSQL, приложение и Caddy, который сам получит HTTPS-сертификат. Миграции и начальные данные применяются при каждом старте, повторно данные не дублируются.
 
-Если репозиторий приватный, в адресе для `git clone` используй токен GitHub только на чтение: `https://<token>@github.com/<owner>/<repo>.git`.
+Другой репозиторий или домен передаются аргументами: `sudo bash install.sh <git-url> <домен>`.
 
 Обновление: `cd /opt/challenge-platform && git pull && docker compose up -d --build`. Логи: `docker compose logs -f app`.
 
 ## Бот и Mini App в Telegram
 
-1. В @BotFather: `/newbot`, имя (например «30 дней без сахара») и username, оканчивающийся на `bot`. Токен вводится только в скрипт установки на сервере.
-2. Кнопку меню «Челлендж», которая открывает Mini App `https://vitalprobiznes.ru/app/`, бот ставит сам при запуске. Команды `/start`, `/app`, `/help` тоже.
+1. Бот уже создан: [@sugar_free_Bot](https://t.me/sugar_free_Bot). Его токен из @BotFather вводится только в скрипт установки на сервере.
+2. Кнопку меню «Челлендж», которая открывает Mini App `https://vitalprobiznes.ru/app/`, бот ставит сам при запуске. Команды `/start`, `/app`, `/help` и описание бота из активного челленджа тоже.
 3. По желанию: `/newapp` в @BotFather с адресом `https://vitalprobiznes.ru/app/` даст прямую ссылку вида `t.me/<бот>/<app>` для рекламы.
 
 ## Переменные окружения

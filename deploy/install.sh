@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Установка платформы челленджей на чистый VPS (Ubuntu 22.04/24.04) одной командой:
-#   curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/deploy/install.sh | sudo bash -s -- <git-url> [домен]
+#   curl -fsSL https://raw.githubusercontent.com/frollvp729-max/challenge-/main/deploy/install.sh | sudo bash
 # Скрипт спросит токены сам: в чат и в историю команд они не попадают.
 set -euo pipefail
 
-REPO_URL="${1:?Укажи адрес репозитория: install.sh <git-url> [домен]}"
+REPO_URL="${1:-https://github.com/frollvp729-max/challenge-.git}"
 DOMAIN="${2:-vitalprobiznes.ru}"
 DIR=/opt/challenge-platform
 
@@ -33,7 +33,8 @@ if [ ! -f "$ENV_FILE" ]; then
   echo
   echo "==> Настройка. Значения не отображаются при вводе там, где это секрет."
   # read из /dev/tty, чтобы работало и при запуске через curl | bash
-  read -r -p "Имя бота без @ (например vitalprobiznes_bot): " BOT_USERNAME </dev/tty
+  read -r -p "Имя бота без @ [sugar_free_Bot]: " BOT_USERNAME </dev/tty
+  BOT_USERNAME="${BOT_USERNAME:-sugar_free_Bot}"
   read -r -s -p "Токен бота от @BotFather: " BOT_TOKEN </dev/tty; echo
   read -r -s -p "API-ключ Tribute (можно оставить пустым и добавить позже): " TRIBUTE_API_KEY </dev/tty; echo
   read -r -s -p "Пароль для админки: " ADMIN_PASSWORD </dev/tty; echo

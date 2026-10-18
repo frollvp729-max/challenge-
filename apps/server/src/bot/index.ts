@@ -142,6 +142,13 @@ export async function startBot() {
     { command: "help", description: "Как это работает" },
   ]);
   await bot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "Челлендж", web_app: { url: config.webAppUrl } } });
+  // Описание бота (экран до /start) берём из активного челленджа, чтобы не править его в @BotFather
+  const ch = await defaultChallenge();
+  if (ch) {
+    const description = `${ch.title}\n${ch.tagline}\n\nКаждый день — одно задание, отчёт за 30 секунд, рейтинг участников и награды.`;
+    await bot.api.setMyDescription(description.slice(0, 512)).catch((err) => console.warn("setMyDescription", err));
+    await bot.api.setMyShortDescription(`${ch.title}: ${ch.tagline}`.slice(0, 120)).catch((err) => console.warn("setMyShortDescription", err));
+  }
   if (config.botMode === "polling") {
     await bot.api.deleteWebhook();
     bot.start({ onStart: (me) => console.log(`Бот @${me.username} запущен (polling)`) });
