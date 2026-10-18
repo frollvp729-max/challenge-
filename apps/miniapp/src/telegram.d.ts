@@ -11,6 +11,9 @@ interface TelegramWebApp {
   HapticFeedback?: { notificationOccurred(type: "error" | "success" | "warning"): void; impactOccurred(style: string): void };
   BackButton: { show(): void; hide(): void; onClick(cb: () => void): void; offClick(cb: () => void): void };
   colorScheme: "light" | "dark";
+  setHeaderColor?(color: string): void;
+  setBackgroundColor?(color: string): void;
+  setBottomBarColor?(color: string): void;
 }
 interface Window {
   Telegram?: { WebApp: TelegramWebApp };

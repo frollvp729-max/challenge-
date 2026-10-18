@@ -13,12 +13,10 @@ export function plural(n: number, one: string, few: string, many: string) {
   return many;
 }
 
-export function countdown(ms: number) {
-  if (ms <= 0) return "0 дней 00:00:00";
-  const s = Math.floor(ms / 1000);
-  const d = Math.floor(s / 86400);
-  const pad = (x: number) => String(x).padStart(2, "0");
-  return `${d} ${plural(d, "день", "дня", "дней")} ${pad(Math.floor((s % 86400) / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+/** Сколько осталось до момента: дни, часы, минуты, секунды */
+export function countdownParts(ms: number): [number, number, number, number] {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return [Math.floor(s / 86400), Math.floor((s % 86400) / 3600), Math.floor((s % 3600) / 60), s % 60];
 }
 
 export function haptic(type: "success" | "error" | "warning") {
