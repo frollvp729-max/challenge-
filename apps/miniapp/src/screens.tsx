@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, type CatalogItem, type DayReport, type DayState, type DayTask, type LeaderRow, type Me, type State, type User } from "./api";
 import type { Screen } from "./App";
 import { Avatar, Icon, IconTile, REWARD_ICONS, type IconName, type Tone } from "./icons";
-import { alertMsg, compressImage, countdown, GOALS, haptic, humanDate, openTgLink, plural } from "./util";
+import { alertMsg, compressImage, countdownParts, GOALS, haptic, humanDate, openTgLink, plural } from "./util";
 import { drawCertificate } from "./certificate";
 
 interface Props {
@@ -92,11 +92,22 @@ function WeekStrip({ state }: { state: State }) {
   );
 }
 
-function Segments({ state }: { state: State }) {
+/** Обратный отсчёт до старта: дни, часы, минуты, секунды в отдельных плашках */
+function Countdown({ ms }: { ms: number }) {
+  const [d, h, m, s] = countdownParts(ms);
+  const units: Array<[number, string]> = [
+    [d, plural(d, "день", "дня", "дней")],
+    [h, plural(h, "час", "часа", "часов")],
+    [m, plural(m, "минута", "минуты", "минут")],
+    [s, plural(s, "секунда", "секунды", "секунд")],
+  ];
   return (
-    <div className="segments" style={{ gridTemplateColumns: `repeat(${state.challenge.durationDays}, 1fr)` }}>
-      {state.score.dayStates.map((st, i) => (
-        <i key={i} className={`seg ${st}${i + 1 === state.day ? " is-today" : ""}`} />
+    <div className="countdown">
+      {units.map(([n, label], i) => (
+        <div key={i} className="cd-unit">
+          <b>{i ? String(n).padStart(2, "0") : n}</b>
+          <span>{label}</span>
+        </div>
       ))}
     </div>
   );
@@ -185,7 +196,7 @@ export function Home({ state, setState, go, me }: Props) {
           <section className="hero">
             <div className="eyebrow">Старт {humanDate(state.stream.startDate)}</div>
             <div className="hero-title">{ch.title}</div>
-            <div className="countdown">{countdown(new Date(state.stream.startsAt).getTime() - now)}</div>
+            <Countdown ms={new Date(state.stream.startsAt).getTime() - now} />
             <p className="hero-note">Утром в день старта бот пришлёт первое задание.</p>
           </section>
           <section className="card">
@@ -211,15 +222,10 @@ export function Home({ state, setState, go, me }: Props) {
                 <div className="hero-day">
                   День {day} <small>из {ch.durationDays}</small>
                 </div>
-                <div className="hero-num">
-                  {String(day).padStart(2, "0")}
-                  <small>/{ch.durationDays}</small>
-                </div>
                 <div className="hero-note">{left > 0 ? `Осталось ${left} ${days(left)}` : "Финишная прямая"}</div>
               </div>
               <Ring value={day} max={ch.durationDays} />
             </div>
-            <Segments state={state} />
             <WeekStrip state={state} />
           </section>
 
@@ -407,12 +413,17 @@ export function Today({ state, setState, go }: Props) {
     if (tg?.initData) tg.showConfirm(msg, (ok) => ok && doIt());
     else if (confirm(msg)) void doIt();
   };
+  // после отправки доказательства сразу показываем итог: фото или текст и кнопку «На главную»
+  const proofSaved = () => {
+    haptic("success");
+    setProofStep(false);
+  };
   const onPhoto = async (f: File | undefined) => {
     if (!f) return;
     const blob = await compressImage(f);
-    await run(() => api.upload<State>(`/enrollments/${id}/report/photo`, blob, "proof.jpg"), () => haptic("success"));
+    await run(() => api.upload<State>(`/enrollments/${id}/report/photo`, blob, "proof.jpg"), proofSaved);
   };
-  const sendText = () => run(() => api.post<State>(`/enrollments/${id}/report`, { proofText: text }), () => haptic("success"));
+  const sendText = () => run(() => api.post<State>(`/enrollments/${id}/report`, { proofText: text }), proofSaved);
 
   const allowPhoto = task.proofType === "photo" || task.proofType === "photo_or_text";
   const allowText = task.proofType === "text" || task.proofType === "photo_or_text";
@@ -469,7 +480,7 @@ export function Today({ state, setState, go }: Props) {
       {report?.status === "VIOLATED" && (
         <section className="card notice tone-bad">
           <div className="card-head">
-            <IconTile icon="x" tone="bad" size="sm" />
+            <IconTile icon="x" tone="bad" size="sm" weight="bold" />
             <b>Нарушение отмечено</b>
           </div>
           <p>Серия обнулилась, но челлендж продолжается. Завтра можно начать новую серию.</p>
@@ -551,13 +562,13 @@ export function Progress({ state }: Props) {
       <div className="stats">
         <Tile icon="done" tone="good" value={`${s.doneCount}/${ch.durationDays}`} label="выполнено" />
         <Tile icon="fire" tone="fire" value={s.currentStreak} label="серия" />
-        <Tile icon="crown" tone="star" value={s.bestStreak} label="рекорд серии" />
+        <Tile icon="crown" tone="rank" value={s.bestStreak} label="рекорд серии" />
         <Tile icon="star" tone="star" value={s.points} label="баллов" />
       </div>
       <section className="card">
         <div className="card-head">
           <h3 className="card-title">Календарь</h3>
-          <span className="muted small">нажми на день</span>
+          {state.phase !== "upcoming" && <span className="muted small">нажми на день</span>}
         </div>
         <div className="cal">
           {s.dayStates.map((st, i) => (
@@ -707,11 +718,40 @@ export function Rewards({ state }: Props) {
 
 // ---------------- Правила ----------------
 
+/**
+ * Текст из админки: короткая строка без точки в начале абзаца становится заголовком,
+ * строки с «•» или «-» становятся пунктами списка
+ */
+function RichText({ text }: { text: string }) {
+  const lines = text.split("\n").map((l) => l.trim());
+  return (
+    <div className="rich">
+      {lines.map((line, i) => {
+        if (!line) return null;
+        const bullet = /^[•\-–—]\s+/.exec(line);
+        if (bullet) {
+          return (
+            <p key={i} className="bullet">
+              {line.slice(bullet[0].length)}
+            </p>
+          );
+        }
+        const startsBlock = i === 0 || !lines[i - 1];
+        const hasMore = lines.slice(i + 1).some(Boolean);
+        if (startsBlock && hasMore && line.length <= 60 && !/[.!?…:;,)]$/.test(line)) return <h3 key={i}>{line}</h3>;
+        return <p key={i}>{line}</p>;
+      })}
+    </div>
+  );
+}
+
 export function Rules({ state, go }: Props) {
   return (
     <div className="page">
       <Header title="Правила" subtitle={state.challenge.title} onBack={() => go("home")} />
-      <section className="card pre">{state.challenge.rules || "Правила скоро появятся."}</section>
+      <section className="card">
+        {state.challenge.rules ? <RichText text={state.challenge.rules} /> : <p className="muted">Правила скоро появятся.</p>}
+      </section>
     </div>
   );
 }
@@ -913,9 +953,9 @@ export function Final({ state, me }: Props) {
         <p className="subtitle">«{ch.title}»</p>
       </div>
       <div className="stats">
-        <Tile icon="done" tone="good" value={`${s.doneCount}/${ch.durationDays}`} label="дней выполнено" />
+        <Tile icon="done" tone="good" value={`${s.doneCount}/${ch.durationDays}`} label="выполнено" />
         <Tile icon="fire" tone="fire" value={s.bestStreak} label="лучшая серия" />
-        <Tile icon="trophy" tone="rank" value={`#${state.rank ?? "—"}`} label="итоговое место" />
+        <Tile icon="trophy" tone="rank" value={`#${state.rank ?? "—"}`} label="место" />
         <Tile icon="star" tone="star" value={s.points} label="баллов" />
       </div>
       <section className="card">

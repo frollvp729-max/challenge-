@@ -79,11 +79,21 @@ export function Icon({ name, size = 22, weight }: { name: IconName; size?: numbe
 }
 
 /** Иконка в цветной плашке */
-export function IconTile({ icon, tone = "neutral", size = "md" }: { icon: IconName; tone?: Tone; size?: "sm" | "md" | "lg" }) {
+export function IconTile({
+  icon,
+  tone = "neutral",
+  size = "md",
+  weight,
+}: {
+  icon: IconName;
+  tone?: Tone;
+  size?: "sm" | "md" | "lg";
+  weight?: IconWeight;
+}) {
   const px = { sm: 16, md: 20, lg: 30 }[size];
   return (
     <span className={`itile itile-${size} tone-${tone}`}>
-      <Icon name={icon} size={px} />
+      <Icon name={icon} size={px} weight={weight} />
     </span>
   );
 }

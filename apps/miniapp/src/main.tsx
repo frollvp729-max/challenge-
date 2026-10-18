@@ -1,8 +1,5 @@
 import { createRoot } from "react-dom/client";
 import "@fontsource-variable/onest";
-import "@fontsource/prata";
-import "@fontsource-variable/unbounded";
-import "@fontsource-variable/manrope";
 import { App } from "./App";
 import { applyTheme } from "./theme";
 import "./styles.css";
