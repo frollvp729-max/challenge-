@@ -130,6 +130,15 @@ export function setupBot() {
   bot.catch((err) => console.error("bot error", err.error));
 }
 
+export function logBotError(err: unknown) {
+  const code = (err as { error_code?: number })?.error_code;
+  if (code === 401 || code === 404) {
+    console.error("Бот не запущен: Telegram не принял BOT_TOKEN. Проверьте токен в apps/server/.env и перезапустите: docker compose up -d");
+  } else {
+    console.error("Бот не запущен:", err);
+  }
+}
+
 export async function startBot() {
   if (!bot) {
     console.warn("BOT_TOKEN не задан: бот выключен, сообщения пишутся в лог.");
@@ -151,7 +160,7 @@ export async function startBot() {
   }
   if (config.botMode === "polling") {
     await bot.api.deleteWebhook();
-    bot.start({ onStart: (me) => console.log(`Бот @${me.username} запущен (polling)`) });
+    bot.start({ onStart: (me) => console.log(`Бот @${me.username} запущен (polling)`) }).catch(logBotError);
   } else if (config.botMode === "webhook") {
     await bot.init();
     await bot.api.setWebhook(`${config.publicUrl}/webhooks/telegram/${config.botWebhookSecret}`, {
