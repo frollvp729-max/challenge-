@@ -637,6 +637,22 @@ button {
   margin: 2px 0 0;
   font-size: 15px;
 }
+.task-box {
+  background: var(--rank-soft);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+.task-box .task-text {
+  margin: 4px 0 0;
+  font-weight: 600;
+}
+/* Переносы строк из админки (шаги «Подготовка», «Как выполнять») */
+.task-desc,
+.task-text,
+.hint p {
+  white-space: pre-line;
+}
 .rewards-row {
   display: flex;
   flex-wrap: wrap;
