@@ -1,8 +1,9 @@
 /**
- * Начальные данные: челлендж «30 дней без сахара» (активен, 30 заданий, поток с 20 октября)
- * и остальные идеи как черновики. Повторный запуск не дублирует данные.
+ * Начальные данные: челлендж «30 дней без сахара» (активен, 30 заданий, поток с 20 октября),
+ * «Холодный душ 30 дней» (черновик с 30 заданиями и потоком с 1 ноября) и остальные идеи как черновики. Повторный запуск не дублирует данные.
  */
 import { PrismaClient } from "@prisma/client";
+import { COLD_CHALLENGE, COLD_DAYS, COLD_SLUG } from "./data/coldShower.js";
 
 const prisma = new PrismaClient();
 
@@ -254,6 +255,32 @@ async function main() {
       update: {},
       create: { slug, title, tagline, status: "DRAFT", priceRub: slug === "wake-0500" ? 990 : 490, sortOrder: order++ },
     });
+  }
+
+  // Холодный душ: черновик создан выше, заполняем тексты, только если их ещё не правили в админке
+  const cold = await prisma.challenge.findUniqueOrThrow({ where: { slug: COLD_SLUG } });
+  if (!cold.intro && !cold.rules) {
+    await prisma.challenge.update({ where: { id: cold.id }, data: COLD_CHALLENGE });
+  }
+  for (let i = 0; i < COLD_DAYS.length; i++) {
+    const d = COLD_DAYS[i];
+    await prisma.challengeDay.upsert({
+      where: { challengeId_dayNumber: { challengeId: cold.id, dayNumber: i + 1 } },
+      update: {},
+      create: {
+        challengeId: cold.id,
+        dayNumber: i + 1,
+        title: d.title,
+        description: d.description,
+        task: d.task,
+        hint: d.hint,
+        proofType: d.proofType ?? "photo_or_text",
+        proofPrompt: d.proofPrompt,
+      },
+    });
+  }
+  if (!(await prisma.stream.count({ where: { challengeId: cold.id } }))) {
+    await prisma.stream.create({ data: { challengeId: cold.id, startDate: "2026-11-01", title: "Поток 1" } });
   }
 
   const noQuit = await prisma.challenge.upsert({

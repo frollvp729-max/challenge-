@@ -349,9 +349,14 @@ function TaskCard({ task, day, total }: { task: DayTask; day: number; total: num
         </span>
       </div>
       <h2 className="task-title big">{task.title}</h2>
-      {task.description && <p className="muted">{task.description}</p>}
+      {task.description && <p className="muted task-desc">{task.description}</p>}
       {task.imageUrl && <img className="task-img" src={task.imageUrl} alt="" />}
-      {task.task && <p className="task-text">{task.task}</p>}
+      {task.task && (
+        <div className="task-box">
+          <span className="eyebrow">Задание</span>
+          <p className="task-text">{task.task}</p>
+        </div>
+      )}
       {task.hint && (
         <div className="hint">
           <IconTile icon="bulb" tone="star" size="sm" />
