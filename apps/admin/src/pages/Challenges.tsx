@@ -59,7 +59,7 @@ export function Challenges() {
         <input placeholder="slug (латиницей, для ссылок)" value={slug} onChange={(e) => setSlug(e.target.value.replace(/[^a-z0-9-]/g, ""))} />
         <button className="primary" disabled={!title || !slug} onClick={create}>Создать</button>
       </div>
-      <p className="muted">Порядок запуска: название → 30 заданий → правила → цена и Tribute → поток с датой старта → статус «Активен».</p>
+      <p className="muted">Порядок запуска: название → 30 заданий → правила → цена и Tribute → дата открытия → статус «Активен». Вход бессрочный: у каждого участника свои 30 дней.</p>
     </>
   );
 }

@@ -999,6 +999,41 @@ textarea::placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.board-day {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+.seg {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 0 0 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: var(--border);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+}
+.seg button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: 600 14px/1.2 var(--font);
+  padding: 10px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.seg button.on {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+.seg-note {
+  font-size: 13px;
+  margin: -4px 4px 12px;
+}
 .board-streak {
   display: inline-flex;
   align-items: center;

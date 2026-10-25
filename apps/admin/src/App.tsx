@@ -38,7 +38,7 @@ export function App() {
   const m = route.match(/^\/challenges\/(\d+)$/);
   if (m) page = <ChallengeEdit id={Number(m[1])} />;
   else if (route === "/challenges") page = <Challenges />;
-  else if (route === "/participants") page = <Participants initialStream={params.get("stream") ?? ""} />;
+  else if (route === "/participants") page = <Participants initialChallenge={params.get("challenge") ?? ""} />;
   else if (route === "/reports") page = <Reports />;
   else if (route === "/broadcasts") page = <Broadcasts />;
   else if (route === "/payments") page = <Payments />;

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type CatalogItem, type DayReport, type DayState, type DayTask, type LeaderRow, type Me, type State, type User } from "./api";
+import { api, type CatalogItem, type DayReport, type DayState, type DayTask, type LeaderboardData, type LeaderRow, type Me, type State, type User } from "./api";
 import type { Screen } from "./App";
 import { Avatar, Icon, IconTile, REWARD_ICONS, type IconName, type Tone } from "./icons";
-import { alertMsg, compressImage, countdownParts, GOALS, haptic, humanDate, openTgLink, plural } from "./util";
+import { alertMsg, compressImage, countdownParts, GOALS, haptic, humanDate, openTgLink, plural, tomorrowIso } from "./util";
 import { drawCertificate } from "./certificate";
 
 interface Props {
@@ -194,7 +194,7 @@ export function Home({ state, setState, go, me }: Props) {
       {state.phase === "upcoming" ? (
         <>
           <section className="hero">
-            <div className="eyebrow">Старт {humanDate(state.stream.startDate)}</div>
+            <div className="eyebrow">Твой день 1: {humanDate(state.stream.startDate)}</div>
             <div className="hero-title">{ch.title}</div>
             <Countdown ms={new Date(state.stream.startsAt).getTime() - now} />
             <p className="hero-note">Утром в день старта бот пришлёт первое задание.</p>
@@ -644,28 +644,56 @@ function Podium({ rows }: { rows: LeaderRow[] }) {
 }
 
 export function Leaderboard({ state }: Props) {
-  const [data, setData] = useState<{ top: LeaderRow[]; me: LeaderRow | null; total: number } | null>(null);
+  const [data, setData] = useState<LeaderboardData | null>(null);
+  const [mode, setMode] = useState<"all" | "day">("all");
   useEffect(() => {
-    api.get<typeof data>(`/enrollments/${state.enrollmentId}/leaderboard`).then(setData).catch((e) => alertMsg(e.message));
+    api.get<LeaderboardData>(`/enrollments/${state.enrollmentId}/leaderboard`).then(setData).catch((e) => alertMsg(e.message));
   }, [state.enrollmentId]);
+  const dayN = data?.sameDay.day ?? 0;
+  const view = data && (mode === "day" && dayN >= 1 ? data.sameDay : data);
+  const total = view?.total ?? 0;
   return (
     <div className="page tabs with-pin">
       <Header
         title="Рейтинг"
-        subtitle={data ? `${data.total} ${plural(data.total, "участник", "участника", "участников")} потока` : undefined}
+        subtitle={
+          view
+            ? mode === "day"
+              ? `Очки за дни 1–${dayN}: ${total} ${plural(total, "участник", "участника", "участников")}`
+              : `${total} ${plural(total, "участник", "участника", "участников")} за всё время`
+            : undefined
+        }
       />
-      {!data ? (
+      {data && dayN >= 1 && (
+        <div className="seg">
+          <button className={mode === "all" ? "on" : ""} onClick={() => setMode("all")}>
+            Общий
+          </button>
+          <button className={mode === "day" ? "on" : ""} onClick={() => setMode("day")}>
+            На твоём {dayN}-м дне
+          </button>
+        </div>
+      )}
+      {!view ? (
         <div className="muted center">Загрузка…</div>
       ) : (
         <>
-          <Podium rows={data.top.slice(0, 3)} />
-          {data.top.length > 3 && (
+          {mode === "day" && (
+            <p className="muted center-text seg-note">
+              У каждого свои 30 дней. Здесь все сравниваются на одном и том же дне: сколько очков было у каждого к концу его {dayN}-го дня.
+            </p>
+          )}
+          <Podium rows={view.top.slice(0, 3)} />
+          {view.top.length > 3 && (
             <section className="card board">
-              {data.top.slice(3).map((r) => (
+              {view.top.slice(3).map((r) => (
                 <div key={r.enrollmentId} className={`board-row${r.isMe ? " me" : ""}`}>
                   <span className="board-rank">{r.rank}</span>
                   <Avatar name={r.name} photo={r.photoUrl} size={36} />
-                  <span className="board-name">{r.name}</span>
+                  <span className="board-name">
+                    {r.name}
+                    {mode === "all" && <span className="board-day">{r.finished ? "прошёл 30 дней" : `день ${r.day}`}</span>}
+                  </span>
                   <span className="board-streak">
                     <Icon name="fire" size={15} weight="fill" /> {r.currentStreak}
                   </span>
@@ -674,14 +702,14 @@ export function Leaderboard({ state }: Props) {
               ))}
             </section>
           )}
-          {data.me && (
+          {view.me && (
             <div className="pin">
               <span>
-                Ты на <b>{data.me.rank}</b> месте из {data.total}
+                Ты на <b>{view.me.rank}</b> месте из {view.total}
               </span>
               <span className="pin-stats">
-                <Icon name="fire" size={16} weight="fill" /> {data.me.currentStreak}
-                <Icon name="star" size={16} weight="fill" /> {data.me.points}
+                <Icon name="fire" size={16} weight="fill" /> {view.me.currentStreak}
+                <Icon name="star" size={16} weight="fill" /> {view.me.points}
               </span>
             </div>
           )}
@@ -896,7 +924,7 @@ export function Catalog() {
           <p className="muted">{c.tagline}</p>
           {c.nextStart && (
             <div className="card-head">
-              <span className="chip">Старт {humanDate(c.nextStart)}</span>
+              <span className="chip">{c.nextStart === tomorrowIso() ? "Старт завтра" : `Старт ${humanDate(c.nextStart)}`}</span>
             </div>
           )}
           <button
@@ -968,7 +996,7 @@ export function Final({ state, me }: Props) {
         <p>
           {fullyDone
             ? `Ты прошёл ${ch.durationDays} дней челленджа «${ch.title}».`
-            : `Ты выполнил ${s.doneCount} ${days(s.doneCount)} из ${ch.durationDays}. Следующий поток — шанс пройти все ${ch.durationDays}.`}
+            : `Ты выполнил ${s.doneCount} ${days(s.doneCount)} из ${ch.durationDays}. Новый круг — шанс пройти все ${ch.durationDays}.`}
         </p>
       </section>
       {cert && <img className="cert" src={cert.url} alt="Сертификат" />}

@@ -9,14 +9,15 @@ import { config } from "../config.js";
 import { validateInitData } from "../lib/telegramAuth.js";
 import { isValidTimezone } from "../lib/dates.js";
 import {
+  challengeLeaderboard,
   currentDayOf,
   enrollmentState,
-  pickStreamForJoin,
+  joinStartDate,
   primaryEnrollment,
   recomputeEnrollment,
+  sameDayLeaderboard,
   serializeDay,
   serializeReport,
-  streamLeaderboard,
   type EnrollmentFull,
 } from "../services/enrollments.js";
 import { bot } from "../bot/index.js";
@@ -121,7 +122,7 @@ export async function miniappRoutes(app: FastifyInstance) {
       enrollments: all.map((e) => ({
         id: e.id,
         challengeTitle: e.stream.challenge.title,
-        startDate: e.stream.startDate,
+        startDate: e.startDate,
         status: e.status,
         points: e.points,
       })),
@@ -162,14 +163,13 @@ export async function miniappRoutes(app: FastifyInstance) {
   });
 
   /** Каталог открытых челленджей (для экрана «нет участия») */
-  app.get("/challenges", async () => {
+  app.get("/challenges", async (req) => {
     const list = await prisma.challenge.findMany({
       where: { status: "ACTIVE" },
       orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
     });
     const out = [];
     for (const ch of list) {
-      const stream = await pickStreamForJoin(ch.id);
       out.push({
         id: ch.id,
         slug: ch.slug,
@@ -179,7 +179,8 @@ export async function miniappRoutes(app: FastifyInstance) {
         priceRub: ch.priceRub,
         paymentMode: ch.paymentMode,
         tributeLink: ch.tributeLink,
-        nextStart: stream?.startDate ?? null,
+        /** Когда начнутся 30 дней, если записаться сейчас */
+        nextStart: joinStartDate(ch, req.tgUser!.timezone),
       });
     }
     return { challenges: out, botUsername: config.botUsername };
@@ -270,12 +271,20 @@ export async function miniappRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { id: string } }>("/enrollments/:id/leaderboard", async (req) => {
     const e = await loadEnrollment(req.tgUser!, Number(req.params.id));
-    const board = await streamLeaderboard(e.streamId);
+    const board = await challengeLeaderboard(e.stream.challengeId, e.id);
     const me = board.find((b) => b.enrollmentId === e.id) ?? null;
+    const same = await sameDayLeaderboard(e);
+    const sameMe = same.rows.find((b) => b.enrollmentId === e.id) ?? null;
     return {
       top: board.slice(0, 100).map(({ userId: _u, ...r }) => ({ ...r, isMe: r.enrollmentId === e.id })),
       me,
       total: board.length,
+      sameDay: {
+        day: same.day,
+        top: same.rows.slice(0, 100).map(({ userId: _u, ...r }) => ({ ...r, isMe: r.enrollmentId === e.id })),
+        me: sameMe,
+        total: same.rows.length,
+      },
     };
   });
 

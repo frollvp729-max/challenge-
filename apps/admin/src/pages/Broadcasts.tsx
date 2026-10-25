@@ -13,7 +13,6 @@ interface B {
 interface Ch {
   id: number;
   title: string;
-  streams: { id: number; startDate: string }[];
 }
 
 export function Broadcasts() {
@@ -38,7 +37,6 @@ export function Broadcasts() {
         text,
         audience,
         challengeId: audience === "challenge" ? target : null,
-        streamId: audience === "stream" ? target : null,
         buttonText: buttonText || null,
       });
       setText("");
@@ -60,18 +58,11 @@ export function Broadcasts() {
           <select value={audience} onChange={(e) => { setAudience(e.target.value); setTarget(""); }}>
             <option value="all">Все пользователи бота</option>
             <option value="challenge">Участники челленджа</option>
-            <option value="stream">Участники потока</option>
           </select>
           {audience === "challenge" && (
             <select value={target} onChange={(e) => setTarget(e.target.value)}>
               <option value="">— выбери —</option>
               {chs.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-            </select>
-          )}
-          {audience === "stream" && (
-            <select value={target} onChange={(e) => setTarget(e.target.value)}>
-              <option value="">— выбери —</option>
-              {chs.flatMap((c) => c.streams.map((s) => <option key={s.id} value={s.id}>{c.title} — {s.startDate}</option>))}
             </select>
           )}
           <input placeholder="Кнопка «открыть приложение» (необязательно)" value={buttonText} onChange={(e) => setButtonText(e.target.value)} />

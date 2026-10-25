@@ -3,7 +3,7 @@ import { config } from "../config.js";
 import { localDate, localHour } from "../lib/dates.js";
 import { sendTo } from "../bot/index.js";
 import { eveningMessage, finishedMessage, morningMessage, openAppKeyboard } from "../bot/messages.js";
-import { currentDayOf, recomputeEnrollment, streamLeaderboard } from "./enrollments.js";
+import { challengeLeaderboard, currentDayOf, recomputeEnrollment } from "./enrollments.js";
 
 /**
  * Раз в минуту проходит по активным участиям и шлёт утреннее задание,
@@ -27,7 +27,7 @@ export async function tickNotifications(now = new Date()) {
       if (day > ch.durationDays) {
         if (!e.finishedNotified) {
           const updated = await recomputeEnrollment(e.id, now);
-          const board = await streamLeaderboard(e.streamId);
+          const board = await challengeLeaderboard(ch.id, e.id, now);
           const rank = board.find((b) => b.enrollmentId === e.id)?.rank ?? null;
           const m = finishedMessage(ch.title, updated?.doneCount ?? e.doneCount, ch.durationDays, updated?.points ?? e.points, rank);
           await prisma.enrollment.update({ where: { id: e.id }, data: { finishedNotified: true, status: "COMPLETED" } });

@@ -17,19 +17,23 @@ test("оплата Tribute → челлендж → отчёт", { skip: !proces
   const app = await buildApp();
   const tgId = 900000000 + Math.floor(Math.random() * 1000000);
 
-  // админ: логин, привязка подписки Tribute к челленджу и поток, который уже идёт
+  // админ: логин, привязка подписки Tribute к челленджу, дата открытия уже прошла
   const login = await app.inject({ method: "POST", url: "/admin/api/login", payload: { password: "secret" } });
   const token = login.json().token as string;
   const auth = { authorization: `Bearer ${token}` };
   const ch = await prisma.challenge.findUniqueOrThrow({ where: { slug: "no-sugar" } });
   const subId = 700000 + Math.floor(Math.random() * 100000);
   await app.inject({ method: "PUT", url: `/admin/api/challenges/${ch.id}`, headers: auth, payload: { tributeSubscriptionId: subId } });
+  const { joinStartDate } = await import("./services/enrollments.js");
+  // до даты открытия все начинают в дату открытия
+  assert.equal(joinStartDate({ startDate: "2099-11-01" }, "UTC"), "2099-11-01");
   const today = new Date().toISOString().slice(0, 10);
-  const st = await app.inject({ method: "POST", url: `/admin/api/challenges/${ch.id}/streams`, headers: auth, payload: { startDate: today, title: "test" } });
-  assert.equal(st.statusCode, 200);
-  // закрываем будущие потоки на время теста, чтобы запись пошла в сегодняшний
-  const others = await prisma.stream.findMany({ where: { challengeId: ch.id, enrollmentOpen: true, id: { not: st.json().id } } });
-  await prisma.stream.updateMany({ where: { id: { in: others.map((o) => o.id) } }, data: { enrollmentOpen: false } });
+  const tomorrow = new Date(Date.now() + 86400_000).toISOString().slice(0, 10);
+  const badDate = await app.inject({ method: "PUT", url: `/admin/api/challenges/${ch.id}`, headers: auth, payload: { startDate: "1 ноября" } });
+  assert.equal(badDate.statusCode, 400);
+  await app.inject({ method: "PUT", url: `/admin/api/challenges/${ch.id}`, headers: auth, payload: { startDate: "2020-01-01" } });
+  // пользователь в UTC, чтобы «завтра» совпало с датой выше
+  await prisma.user.create({ data: { telegramId: BigInt(tgId), timezone: "UTC" } });
 
   try {
     const body = JSON.stringify({
@@ -59,6 +63,11 @@ test("оплата Tribute → челлендж → отчёт", { skip: !proces
     const ok = await app.inject({ method: "POST", url: "/webhooks/tribute", headers: { "content-type": "application/json", "trbt-signature": sig }, body });
     assert.equal(ok.statusCode, 200);
     assert.equal(ok.json().result.action, "enrolled");
+    const enr = await prisma.enrollment.findFirstOrThrow({ where: { user: { telegramId: BigInt(tgId) } } });
+    // пришёл после даты открытия — старт на следующий день после оплаты
+    assert.equal(enr.startDate, tomorrow);
+    // для проверки отчёта сдвигаем старт на сегодня
+    await prisma.enrollment.update({ where: { id: enr.id }, data: { startDate: today } });
     const dup = await app.inject({ method: "POST", url: "/webhooks/tribute", headers: { "content-type": "application/json", "trbt-signature": sig }, body });
     assert.equal(dup.json().result.action, "duplicate");
 
@@ -86,13 +95,25 @@ test("оплата Tribute → челлендж → отчёт", { skip: !proces
 
     const lb = (await app.inject({ method: "GET", url: `/api/enrollments/${me.primaryEnrollmentId}/leaderboard`, headers: h })).json();
     assert.equal(lb.me.name, "Тестер");
+    assert.equal(lb.me.day, 1);
+    assert.equal(lb.sameDay.day, 1);
+    assert.equal(lb.sameDay.me.points, 15);
+
+    // продление подписки, пока круг идёт: следующий круг встаёт сразу после текущего
+    const renew = body.replace('"new_subscription"', '"renewed_subscription"').replace(/"expires_at":"[^"]+"/, `"expires_at":"${new Date(Date.now() + 60 * 86400_000).toISOString()}"`);
+    const rsig = crypto.createHmac("sha256", "test-key").update(renew).digest("hex");
+    const rr = await app.inject({ method: "POST", url: "/webhooks/tribute", headers: { "content-type": "application/json", "trbt-signature": rsig }, body: renew });
+    assert.equal(rr.json().result.action, "enrolled", rr.body);
+    const rounds = await prisma.enrollment.findMany({ where: { user: { telegramId: BigInt(tgId) } }, orderBy: { startDate: "asc" } });
+    assert.deepEqual(rounds.map((r) => r.startDate), [today, new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10)]);
+    // главным остаётся идущий круг
+    const me2 = (await app.inject({ method: "GET", url: "/api/me", headers: h })).json();
+    assert.equal(me2.primaryEnrollmentId, me.primaryEnrollmentId);
 
     const parts = await app.inject({ method: "GET", url: `/admin/api/participants?q=${tgId}`, headers: auth });
     assert.equal(parts.json()[0].points, 15);
   } finally {
-    await prisma.stream.updateMany({ where: { id: { in: others.map((o) => o.id) } }, data: { enrollmentOpen: true } });
-    await prisma.stream.delete({ where: { id: st.json().id } });
-    await prisma.challenge.update({ where: { id: ch.id }, data: { tributeSubscriptionId: null } });
+    await prisma.challenge.update({ where: { id: ch.id }, data: { tributeSubscriptionId: null, startDate: ch.startDate } });
     await prisma.user.deleteMany({ where: { telegramId: BigInt(tgId) } });
     await prisma.payment.deleteMany({ where: { challengeId: ch.id, raw: { path: ["payload", "telegram_user_id"], equals: tgId } } });
     await app.close();

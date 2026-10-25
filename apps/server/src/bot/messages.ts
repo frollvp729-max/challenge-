@@ -1,5 +1,5 @@
 import { InlineKeyboard } from "grammy";
-import type { Challenge, Stream } from "@prisma/client";
+import type { Challenge } from "@prisma/client";
 import { config } from "../config.js";
 import { countdown, humanDate, zonedMidnight } from "../lib/dates.js";
 
@@ -24,23 +24,26 @@ export function introMessage(ch: Challenge) {
   return { text, keyboard: new InlineKeyboard().text("УЧАСТВОВАТЬ", `join:${ch.id}`) };
 }
 
-export function priceMessage(ch: Challenge, stream: Stream | null) {
+/** startDate — когда начнутся 30 дней, если оплатить сейчас */
+export function priceMessage(ch: Challenge, startDate: string) {
   const lines = [`<b>${esc(ch.title)}</b>`, "", `Стоимость участия — <b>${ch.priceRub} ₽</b>`];
   if (ch.paymentMode === "SUBSCRIPTION") {
     lines.push("Оплата через Tribute, подписка продлевается автоматически раз в месяц. Отменить можно в любой момент в @tribute.");
   }
-  if (stream) lines.push("", `Старт: ${humanDate(stream.startDate)}`);
+  if (ch.startDate && startDate === ch.startDate) lines.push("", `Старт: ${humanDate(startDate)}`);
+  else lines.push("", "Старт на следующий день после оплаты. У каждого свои 30 дней.");
   const kb = new InlineKeyboard();
   if (ch.tributeLink) kb.url(`ОПЛАТИТЬ ${ch.priceRub} ₽`, ch.tributeLink);
   return { text: lines.join("\n"), keyboard: kb };
 }
 
-export function paidMessage(stream: Stream, tz: string, now = new Date()) {
-  const startsAt = zonedMidnight(stream.startDate, tz);
+/** startDate — личный день 1 участника */
+export function paidMessage(startDate: string, tz: string, now = new Date()) {
+  const startsAt = zonedMidnight(startDate, tz);
   const left = startsAt.getTime() - now.getTime();
-  const lines = ["Оплата получена.", "Ты в челлендже.", `Старт: ${humanDate(stream.startDate)}`];
+  const lines = ["Оплата получена.", "Ты в челлендже.", `Твой день 1: ${humanDate(startDate)}`];
   if (left > 0) lines.push(`До старта: ${countdown(left)}`);
-  else lines.push("Челлендж уже идёт, присоединяйся прямо сегодня.");
+  else lines.push("Твои 30 дней уже идут, присоединяйся прямо сегодня.");
   return { text: lines.join("\n"), keyboard: openAppKeyboard() };
 }
 

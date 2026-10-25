@@ -107,6 +107,7 @@ export interface State {
     pointsViolation: number;
     streakSaveCost: number;
   };
+  /** Личный старт участника: у каждого свои 30 дней */
   stream: { id: number; startDate: string; startsAt: string };
   phase: "upcoming" | "running" | "finished";
   today: string;
@@ -141,7 +142,18 @@ export interface LeaderRow {
   currentStreak: number;
   bestStreak: number;
   doneCount: number;
+  /** Личный день участника */
+  day: number;
+  finished?: boolean;
   isMe?: boolean;
+}
+
+export interface LeaderboardData {
+  top: LeaderRow[];
+  me: LeaderRow | null;
+  total: number;
+  /** Сравнение на одном и том же личном дне */
+  sameDay: { day: number; top: LeaderRow[]; me: LeaderRow | null; total: number };
 }
 
 export interface CatalogItem {

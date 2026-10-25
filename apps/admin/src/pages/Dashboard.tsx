@@ -8,10 +8,17 @@ interface Stats {
   paymentsCount: number;
   revenue: number;
   newUsers7d: number;
-  streams: { id: number; challenge: string; startDate: string; phase: string; day: number; participants: number; reportedToday: number }[];
+  byChallenge: {
+    id: number;
+    challenge: string;
+    startDate: string | null;
+    running: number;
+    upcoming: number;
+    finished: number;
+    participants: number;
+    reportedToday: number;
+  }[];
 }
-
-const PHASE: Record<string, string> = { UPCOMING: "Скоро старт", RUNNING: "Идёт", FINISHED: "Завершён" };
 
 export function Dashboard() {
   const [s, setS] = useState<Stats | null>(null);
@@ -31,23 +38,22 @@ export function Dashboard() {
         <div className="tile"><span>Оплат</span><b>{s.paymentsCount}</b></div>
         <div className="tile"><span>Сумма оплат (как присылает Tribute)</span><b>{s.revenue}</b></div>
       </div>
-      <h2>Потоки</h2>
+      <h2>Челленджи</h2>
+      <p className="muted">У каждого участника свои 30 дней, поэтому «сегодня» у всех разный день.</p>
       <table>
         <thead>
-          <tr><th>Челлендж</th><th>Старт</th><th>Статус</th><th>День</th><th>Участников</th><th>Отчитались сегодня</th><th></th></tr>
+          <tr><th>Челлендж</th><th>Открытие</th><th>Ждут старта</th><th>Проходят</th><th>Завершили</th><th>Отчитались сегодня</th><th></th></tr>
         </thead>
         <tbody>
-          {s.streams.map((x) => (
+          {s.byChallenge.map((x) => (
             <tr key={x.id}>
               <td>{x.challenge}</td>
-              <td>{x.startDate}</td>
-              <td>{PHASE[x.phase]}</td>
-              <td>{x.phase === "RUNNING" ? x.day : "—"}</td>
-              <td>{x.participants}</td>
-              <td>
-                {x.phase === "RUNNING" ? `${x.reportedToday} (${x.participants ? Math.round((x.reportedToday / x.participants) * 100) : 0}%)` : "—"}
-              </td>
-              <td><a href={`#/participants?stream=${x.id}`}>участники →</a></td>
+              <td>{x.startDate ? x.startDate.split("-").reverse().join(".") : "—"}</td>
+              <td>{x.upcoming}</td>
+              <td>{x.running}</td>
+              <td>{x.finished}</td>
+              <td>{x.running ? `${x.reportedToday} (${Math.round((x.reportedToday / x.running) * 100)}%)` : "—"}</td>
+              <td><a href={`#/participants?challenge=${x.id}`}>участники →</a></td>
             </tr>
           ))}
         </tbody>

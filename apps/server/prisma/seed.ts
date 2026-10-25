@@ -1,15 +1,16 @@
 /**
- * Начальные данные: челлендж «30 дней без сахара» (активен, 30 заданий, поток с 20 октября),
- * остальные идеи как черновики и их наполнение из prisma/data (описание, правила и 30 дней у каждого;
- * у холодного душа ещё поток с 1 ноября). Повторный запуск не дублирует данные и не трогает ручные правки из админки.
+ * Начальные данные: челлендж «30 дней без сахара» (активен, 30 заданий),
+ * остальные идеи как черновики и их наполнение из prisma/data (описание, правила и 30 дней у каждого).
+ * Все открываются 1 ноября 2026, вход бессрочный. Повторный запуск не дублирует данные и не трогает ручные правки из админки.
  */
 import { PrismaClient } from "@prisma/client";
-import { COLD_SLUG } from "./data/coldShower.js";
 import { CONTENT } from "./data/index.js";
 import { NO_QUIT_CHECKLIST } from "./data/noQuit.js";
 import type { ChallengeContent } from "./data/types.js";
 
 const prisma = new PrismaClient();
+/** Все челленджи открываются 1 ноября 2026; позже каждый начинает на следующий день после оплаты */
+const OPEN_DATE = "2026-11-01";
 
 const VIOLATIONS = "Что считается нарушением: сладкая газировка, конфеты, шоколад, сладкая выпечка, сахар в кофе/чае, сладкие соусы. Фрукты разрешены.";
 
@@ -229,6 +230,7 @@ async function main() {
       status: "ACTIVE",
       priceRub: 490,
       paymentMode: "SUBSCRIPTION",
+      startDate: OPEN_DATE,
       sortOrder: 0,
     },
   });
@@ -249,23 +251,16 @@ async function main() {
       },
     });
   }
-  if (!(await prisma.stream.count({ where: { challengeId: sugar.id } }))) {
-    await prisma.stream.create({ data: { challengeId: sugar.id, startDate: "2026-10-20", title: "Поток 1" } });
-  }
 
   let order = 1;
   for (const [slug, title, tagline] of DRAFTS) {
     await prisma.challenge.upsert({
       where: { slug },
       update: {},
-      create: { slug, title, tagline, status: "DRAFT", priceRub: slug === "wake-0500" ? 990 : 490, sortOrder: order++ },
+      create: { slug, title, tagline, status: "DRAFT", priceRub: slug === "wake-0500" ? 990 : 490, startDate: OPEN_DATE, sortOrder: order++ },
     });
   }
 
-  const cold = await prisma.challenge.findUniqueOrThrow({ where: { slug: COLD_SLUG } });
-  if (!(await prisma.stream.count({ where: { challengeId: cold.id } }))) {
-    await prisma.stream.create({ data: { challengeId: cold.id, startDate: "2026-11-01", title: "Поток 1" } });
-  }
 
   const noQuit = await prisma.challenge.upsert({
     where: { slug: "no-quit" },
@@ -276,6 +271,7 @@ async function main() {
       tagline: NO_QUIT_TAGLINE,
       status: "DRAFT",
       priceRub: 990,
+      startDate: OPEN_DATE,
       sortOrder: order++,
     },
   });

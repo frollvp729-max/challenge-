@@ -16,24 +16,14 @@ interface Day {
   proofRequired: boolean;
   checklist: string[];
 }
-interface Stream {
-  id: number;
-  title: string;
-  startDate: string;
-  enrollmentOpen: boolean;
-  phase: string;
-  participants: number;
-}
 interface Challenge {
   id: number;
   [k: string]: any;
   days: Day[];
-  streams: Stream[];
+  participants: number;
 }
 
-const PHASE: Record<string, string> = { UPCOMING: "Скоро старт", RUNNING: "Идёт", FINISHED: "Завершён" };
-
-type FieldDef = [key: string, label: string, kind?: "text" | "area" | "number" | "select" | "image", options?: Array<[string, string]>];
+type FieldDef = [key: string, label: string, kind?: "text" | "area" | "number" | "select" | "image" | "date", options?: Array<[string, string]>];
 
 const SETTINGS: Array<[string, FieldDef[]]> = [
   [
@@ -46,6 +36,7 @@ const SETTINGS: Array<[string, FieldDef[]]> = [
       ["intro", "Приветствие в боте (HTML: <b>жирный</b>)", "area"],
       ["rules", "Правила", "area"],
       ["coverUrl", "Обложка", "image"],
+      ["startDate", "Дата открытия (кто записался раньше, начнёт в этот день; позже — на следующий день после оплаты)", "date"],
       ["durationDays", "Длительность, дней", "number"],
       ["chatLink", "Ссылка на чат участников"],
       ["sortOrder", "Порядок в каталоге", "number"],
@@ -109,6 +100,7 @@ function Field({ def, value, onChange }: { def: FieldDef; value: any; onChange: 
       </select>
     );
   else if (kind === "image") input = <ImageField value={value} onChange={onChange} />;
+  else if (kind === "date") input = <input type="date" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)} />;
   else input = <input type={kind === "number" ? "number" : "text"} value={value ?? ""} onChange={(e) => onChange(e.target.value)} />;
   return (
     <label className="field" key={key}>
@@ -121,11 +113,10 @@ function Field({ def, value, onChange }: { def: FieldDef; value: any; onChange: 
 export function ChallengeEdit({ id }: { id: number }) {
   const [c, setC] = useState<Challenge | null>(null);
   const [draft, setDraft] = useState<Record<string, any>>({});
-  const [tab, setTab] = useState<"settings" | "days" | "streams">("days");
+  const [tab, setTab] = useState<"settings" | "days" | "start">("days");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [editDay, setEditDay] = useState<Day | null>(null);
-  const [newStart, setNewStart] = useState("");
 
   const load = async () => {
     try {
@@ -170,7 +161,7 @@ export function ChallengeEdit({ id }: { id: number }) {
       <div className="tabs">
         <button className={tab === "days" ? "on" : ""} onClick={() => setTab("days")}>Задания ({c.days.length})</button>
         <button className={tab === "settings" ? "on" : ""} onClick={() => setTab("settings")}>Настройки</button>
-        <button className={tab === "streams" ? "on" : ""} onClick={() => setTab("streams")}>Потоки ({c.streams.length})</button>
+        <button className={tab === "start" ? "on" : ""} onClick={() => setTab("start")}>Запуск и участники ({c.participants})</button>
       </div>
       {msg && <div className="ok">{msg}</div>}
       {err && <div className="error">{err}</div>}
@@ -218,46 +209,18 @@ export function ChallengeEdit({ id }: { id: number }) {
         </div>
       )}
 
-      {tab === "streams" && (
+      {tab === "start" && (
         <div className="panel">
-          <p className="muted">
-            Поток — запуск челленджа с датой старта. Оплатившие попадают в ближайший будущий поток с открытой записью (или в идущий, если будущего нет).
+          <p>
+            Вход в челлендж открыт всегда. Дата открытия: <b>{c.startDate ? c.startDate.split("-").reverse().join(".") : "не задана"}</b>.
           </p>
-          <table>
-            <thead>
-              <tr><th>Старт</th><th>Название</th><th>Статус</th><th>Участников</th><th>Запись</th><th></th></tr>
-            </thead>
-            <tbody>
-              {c.streams.map((s) => (
-                <tr key={s.id}>
-                  <td>{s.startDate}</td>
-                  <td>{s.title}</td>
-                  <td>{PHASE[s.phase]}</td>
-                  <td>{s.participants}</td>
-                  <td>
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={s.enrollmentOpen}
-                        onChange={(e) => wrap(() => api.put(`/streams/${s.id}`, { enrollmentOpen: e.target.checked }), "Сохранено")}
-                      />
-                      открыта
-                    </label>
-                  </td>
-                  <td><a href={`#/participants?stream=${s.id}`}>участники и рейтинг →</a></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <p className="muted">
+            Кто оплатил до даты открытия, начинает в этот день. Кто пришёл позже, начинает свои {c.durationDays} дней на следующий день
+            после оплаты. При продлении подписки следующий круг начинается сразу после текущего. Рейтинг общий для всех участников,
+            плюс в приложении есть сравнение «на том же дне». Дату открытия можно поменять во вкладке «Настройки».
+          </p>
           <div className="row">
-            <input type="date" value={newStart} onChange={(e) => setNewStart(e.target.value)} />
-            <button
-              className="primary"
-              disabled={!newStart}
-              onClick={() => wrap(() => api.post(`/challenges/${id}/streams`, { startDate: newStart, title: `Поток ${c.streams.length + 1}` }), "Поток создан")}
-            >
-              Создать поток
-            </button>
+            <a className="btn" href={`#/participants?challenge=${id}`}>Участники и рейтинг ({c.participants}) →</a>
             <button
               onClick={() =>
                 wrap(async () => {
@@ -266,7 +229,7 @@ export function ChallengeEdit({ id }: { id: number }) {
                 }, "Готово")
               }
             >
-              Записать оплативших без потока
+              Записать оплативших, у кого нет участия
             </button>
           </div>
         </div>

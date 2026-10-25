@@ -72,24 +72,19 @@ async function onSubscriptionPaid(name: string, p: TributeSubscriptionPayload, r
     return { ok: true, action: "unmapped_subscription" };
   }
 
-  const res = await grantAccess(user.id, challenge.id, "tribute_subscription");
-  if (!res) {
-    await sendTo(
-      user.telegramId,
-      `Оплата получена. Следующий поток «${esc(challenge.title)}» ещё не открыт. Как только появится дата старта, мы запишем тебя и пришлём сообщение.`,
-    );
-    return { ok: true, action: "paid_no_stream" };
-  }
+  const res = await grantAccess(user.id, challenge.id, "tribute_subscription", new Date(), {
+    renewal: name === "renewed_subscription",
+  });
   if (res.created) {
-    const m = paidMessage(res.stream, user.timezone);
+    const m = paidMessage(res.startDate, user.timezone);
     if (name === "renewed_subscription") {
-      m.text = `Подписка продлена. Ты записан в новый поток «${esc(challenge.title)}».\nСтарт: ${humanDate(res.stream.startDate)}`;
+      m.text = `Подписка продлена. Следующие 30 дней «${esc(challenge.title)}» начнутся ${humanDate(res.startDate)}.`;
     }
     await sendTo(user.telegramId, m.text, m.keyboard);
     return { ok: true, action: "enrolled" };
   }
   if (name === "new_subscription") {
-    const m = paidMessage(res.stream, user.timezone);
+    const m = paidMessage(res.startDate, user.timezone);
     await sendTo(user.telegramId, m.text, m.keyboard);
   }
   return { ok: true, action: "extended" };
@@ -110,7 +105,7 @@ async function onSubscriptionCancelled(p: TributeSubscriptionPayload, raw: Tribu
     where: { userId: user.id, tributeSubscriptionId: p.subscription_id },
     data: { status: "cancelled", cancelReason: p.cancel_reason || null, expiresAt: new Date(p.expires_at) },
   });
-  // Оплаченный поток остаётся доступным до конца: отключено только автопродление.
+  // Оплаченный круг остаётся доступным до конца: отключено только автопродление.
   if (challenge) {
     await sendTo(
       user.telegramId,
@@ -137,18 +132,14 @@ async function onDigitalProduct(p: TributeDigitalProductPayload, raw: TributeEve
   if (!fresh) return { ok: true, action: "duplicate" };
   if (!challenge) return { ok: true, action: "unmapped_product" };
   const res = await grantAccess(user.id, challenge.id, "tribute_product");
-  if (!res) {
-    await sendTo(user.telegramId, `Оплата получена. Мы запишем тебя в ближайший поток «${esc(challenge.title)}» и пришлём сообщение.`);
-    return { ok: true, action: "paid_no_stream" };
-  }
-  const m = paidMessage(res.stream, user.timezone);
+  const m = paidMessage(res.startDate, user.timezone);
   await sendTo(user.telegramId, m.text, m.keyboard);
   return { ok: true, action: res.created ? "enrolled" : "already_enrolled" };
 }
 
 /**
- * Записать в поток всех, у кого есть активная оплата челленджа, но нет участия в идущем/будущем потоке.
- * Нужна, когда оплата пришла, а открытого потока не было.
+ * Записать всех, у кого есть активная оплата челленджа, но нет идущего или будущего круга.
+ * Нужна, когда оплата пришла до того, как подписку привязали к челленджу.
  */
 export async function enrollPaidUsers(challengeId: number) {
   const ch = await prisma.challenge.findUniqueOrThrow({ where: { id: challengeId } });
@@ -174,8 +165,8 @@ export async function enrollPaidUsers(challengeId: number) {
     if (res?.created) {
       enrolled++;
       const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-      const m = paidMessage(res.stream, user.timezone);
-      await sendTo(user.telegramId, `Ты записан в поток «${esc(ch.title)}».\n` + m.text.split("\n").slice(2).join("\n"), m.keyboard);
+      const m = paidMessage(res.startDate, user.timezone);
+      await sendTo(user.telegramId, `Ты записан в челлендж «${esc(ch.title)}».\n` + m.text.split("\n").slice(2).join("\n"), m.keyboard);
     }
   }
   return { enrolled };
