@@ -353,3 +353,25 @@ export async function primaryEnrollment(userId: number, now = new Date()): Promi
     withDay[0].e
   );
 }
+
+export type EnrollmentPhase = "upcoming" | "running" | "finished";
+
+/**
+ * По одному участию на челлендж (у участника их может быть несколько одновременно):
+ * идущее сейчас, иначе ближайшее будущее, иначе последнее завершённое.
+ */
+export function enrollmentsByChallenge(list: EnrollmentFull[], now = new Date()) {
+  const rank: Record<EnrollmentPhase, number> = { running: 0, upcoming: 1, finished: 2 };
+  const best = new Map<number, { e: EnrollmentFull; phase: EnrollmentPhase; day: number }>();
+  for (const e of list) {
+    const day = currentDayOf(e, now);
+    const phase: EnrollmentPhase = day < 1 ? "upcoming" : day > e.stream.challenge.durationDays ? "finished" : "running";
+    const prev = best.get(e.stream.challengeId);
+    const better =
+      !prev ||
+      rank[phase] < rank[prev.phase] ||
+      (rank[phase] === rank[prev.phase] && (phase === "upcoming" ? e.startDate < prev.e.startDate : e.startDate > prev.e.startDate));
+    if (better) best.set(e.stream.challengeId, { e, phase, day });
+  }
+  return [...best.values()];
+}
