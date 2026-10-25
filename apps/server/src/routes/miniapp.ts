@@ -11,6 +11,7 @@ import { isValidTimezone } from "../lib/dates.js";
 import {
   challengeLeaderboard,
   currentDayOf,
+  enrollmentsByChallenge,
   enrollmentState,
   joinStartDate,
   primaryEnrollment,
@@ -112,19 +113,26 @@ export async function miniappRoutes(app: FastifyInstance) {
     const primary = await primaryEnrollment(user.id);
     const all = await prisma.enrollment.findMany({
       where: { userId: user.id, status: { in: ["ACTIVE", "COMPLETED"] } },
-      include: { stream: { include: { challenge: true } } },
+      include: { user: true, stream: { include: { challenge: true } } },
       orderBy: { createdAt: "desc" },
     });
+    const mine = enrollmentsByChallenge(all).sort(
+      (a, b) => a.e.stream.challenge.sortOrder - b.e.stream.challenge.sortOrder || a.e.stream.challengeId - b.e.stream.challengeId,
+    );
     return {
       user: serializeUser(user),
       botUsername: config.botUsername,
       primaryEnrollmentId: primary?.id ?? null,
-      enrollments: all.map((e) => ({
+      /** По одному участию на челлендж: между ними участник переключается на главной */
+      enrollments: mine.map(({ e, phase, day }) => ({
         id: e.id,
+        challengeId: e.stream.challengeId,
         challengeTitle: e.stream.challenge.title,
         startDate: e.startDate,
         status: e.status,
         points: e.points,
+        phase,
+        day,
       })),
     };
   });
@@ -162,14 +170,23 @@ export async function miniappRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  /** Каталог открытых челленджей (для экрана «нет участия») */
+  /** Каталог открытых челленджей; у тех, где участник уже записан, есть его участие */
   app.get("/challenges", async (req) => {
-    const list = await prisma.challenge.findMany({
-      where: { status: "ACTIVE" },
-      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-    });
+    const user = req.tgUser!;
+    const [list, mine] = await Promise.all([
+      prisma.challenge.findMany({
+        where: { status: "ACTIVE" },
+        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+      }),
+      prisma.enrollment.findMany({
+        where: { userId: user.id, status: { in: ["ACTIVE", "COMPLETED"] } },
+        include: { user: true, stream: { include: { challenge: true } } },
+      }),
+    ]);
+    const joined = new Map(enrollmentsByChallenge(mine).map((x) => [x.e.stream.challengeId, x]));
     const out = [];
     for (const ch of list) {
+      const j = joined.get(ch.id);
       out.push({
         id: ch.id,
         slug: ch.slug,
@@ -180,7 +197,8 @@ export async function miniappRoutes(app: FastifyInstance) {
         paymentMode: ch.paymentMode,
         tributeLink: ch.tributeLink,
         /** Когда начнутся 30 дней, если записаться сейчас */
-        nextStart: joinStartDate(ch, req.tgUser!.timezone),
+        nextStart: joinStartDate(ch, user.timezone),
+        joined: j ? { enrollmentId: j.e.id, phase: j.phase, startDate: j.e.startDate } : null,
       });
     }
     return { challenges: out, botUsername: config.botUsername };
