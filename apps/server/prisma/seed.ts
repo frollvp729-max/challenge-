@@ -1,10 +1,12 @@
 /**
  * Начальные данные: челлендж «30 дней без сахара» (активен, 30 заданий, поток с 20 октября),
- * «Холодный душ 30 дней» (черновик с 30 заданиями и потоком с 1 ноября) и остальные идеи как черновики. Повторный запуск не дублирует данные.
+ * остальные идеи как черновики и их наполнение из prisma/data (описание, правила и 30 дней у каждого;
+ * у холодного душа ещё поток с 1 ноября). Повторный запуск не дублирует данные и не трогает ручные правки из админки.
  */
 import { PrismaClient } from "@prisma/client";
 import { COLD_SLUG } from "./data/coldShower.js";
 import { CONTENT } from "./data/index.js";
+import { NO_QUIT_CHECKLIST } from "./data/noQuit.js";
 import type { ChallengeContent } from "./data/types.js";
 
 const prisma = new PrismaClient();
@@ -212,7 +214,6 @@ const DRAFTS: Array<[string, string, string]> = [
 
 const NO_QUIT_TITLE = "30 дней — не сливаюсь";
 const NO_QUIT_TAGLINE = "Каждый день 5 пунктов: шаги, обучение, зарядка, вода, ранний подъём";
-const NO_QUIT_CHECKLIST = ["10 000 шагов", "20 минут обучения", "10 минут зарядки", "2 литра воды", "Подъём до 05:00"];
 
 async function main() {
   const sugar = await prisma.challenge.upsert({
