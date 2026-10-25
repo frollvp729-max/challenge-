@@ -3,7 +3,9 @@
  * «Холодный душ 30 дней» (черновик с 30 заданиями и потоком с 1 ноября) и остальные идеи как черновики. Повторный запуск не дублирует данные.
  */
 import { PrismaClient } from "@prisma/client";
-import { COLD_CHALLENGE, COLD_DAYS, COLD_SLUG } from "./data/coldShower.js";
+import { COLD_SLUG } from "./data/coldShower.js";
+import { CONTENT } from "./data/index.js";
+import type { ChallengeContent } from "./data/types.js";
 
 const prisma = new PrismaClient();
 
@@ -208,6 +210,8 @@ const DRAFTS: Array<[string, string, string]> = [
   ["gratitude-30", "30 дней благодарности", "Каждый день фиксировать 3 вещи, за которые благодарен"],
 ];
 
+const NO_QUIT_TITLE = "30 дней — не сливаюсь";
+const NO_QUIT_TAGLINE = "Каждый день 5 пунктов: шаги, обучение, зарядка, вода, ранний подъём";
 const NO_QUIT_CHECKLIST = ["10 000 шагов", "20 минут обучения", "10 минут зарядки", "2 литра воды", "Подъём до 05:00"];
 
 async function main() {
@@ -257,38 +261,7 @@ async function main() {
     });
   }
 
-  // Холодный душ: черновик создан выше. Заполняем только пустые поля и дни-заготовки
-  // («День N» без описания и подсказки, как их создаёт кнопка в админке), правки из админки не трогаем
   const cold = await prisma.challenge.findUniqueOrThrow({ where: { slug: COLD_SLUG } });
-  const draft = DRAFTS.find(([slug]) => slug === COLD_SLUG)!;
-  await prisma.challenge.update({
-    where: { id: cold.id },
-    data: {
-      title: cold.title === draft[1] ? COLD_CHALLENGE.title : cold.title,
-      tagline: !cold.tagline || cold.tagline === draft[2] ? COLD_CHALLENGE.tagline : cold.tagline,
-      intro: cold.intro || COLD_CHALLENGE.intro,
-      rules: cold.rules || COLD_CHALLENGE.rules,
-    },
-  });
-  for (let i = 0; i < COLD_DAYS.length; i++) {
-    const d = COLD_DAYS[i];
-    const dayNumber = i + 1;
-    const content = {
-      title: d.title,
-      description: d.description,
-      task: d.task,
-      hint: d.hint,
-      proofType: d.proofType ?? "photo_or_text",
-      proofPrompt: d.proofPrompt,
-    };
-    const key = { challengeId_dayNumber: { challengeId: cold.id, dayNumber } };
-    const existing = await prisma.challengeDay.findUnique({ where: key });
-    if (!existing) {
-      await prisma.challengeDay.create({ data: { challengeId: cold.id, dayNumber, ...content } });
-    } else if (existing.title === `День ${dayNumber}` && !existing.description && !existing.hint) {
-      await prisma.challengeDay.update({ where: key, data: content });
-    }
-  }
   if (!(await prisma.stream.count({ where: { challengeId: cold.id } }))) {
     await prisma.stream.create({ data: { challengeId: cold.id, startDate: "2026-11-01", title: "Поток 1" } });
   }
@@ -298,8 +271,8 @@ async function main() {
     update: {},
     create: {
       slug: "no-quit",
-      title: "30 дней — не сливаюсь",
-      tagline: "Каждый день 5 пунктов: шаги, обучение, зарядка, вода, ранний подъём",
+      title: NO_QUIT_TITLE,
+      tagline: NO_QUIT_TAGLINE,
       status: "DRAFT",
       priceRub: 990,
       sortOrder: order++,
@@ -320,7 +293,50 @@ async function main() {
       },
     });
   }
+  const defaults = new Map<string, [string, string]>(DRAFTS.map(([slug, title, tagline]) => [slug, [title, tagline]]));
+  defaults.set("no-quit", [NO_QUIT_TITLE, NO_QUIT_TAGLINE]);
+  for (const content of CONTENT) await fillChallenge(content, defaults.get(content.slug));
   console.log("Seed готов");
+}
+
+/**
+ * Заполняет черновик готовыми текстами. Трогает только пустые поля, заголовок и подзаголовок по умолчанию
+ * и дни-заготовки («День N» без описания и подсказки, как их создаёт кнопка в админке): правки из админки сохраняются.
+ */
+async function fillChallenge(content: ChallengeContent, draft?: [string, string]) {
+  const ch = await prisma.challenge.findUnique({ where: { slug: content.slug } });
+  if (!ch) return;
+  await prisma.challenge.update({
+    where: { id: ch.id },
+    data: {
+      title: draft && ch.title === draft[0] ? content.title : ch.title,
+      tagline: !ch.tagline || ch.tagline === draft?.[1] ? content.tagline : ch.tagline,
+      intro: ch.intro || content.intro,
+      rules: ch.rules || content.rules,
+    },
+  });
+  for (let i = 0; i < content.days.length; i++) {
+    const d = content.days[i];
+    const dayNumber = i + 1;
+    const data = {
+      title: d.title,
+      description: d.description,
+      task: d.task,
+      hint: d.hint,
+      proofType: d.proofType ?? "photo_or_text",
+      proofPrompt: d.proofPrompt,
+      ...(d.checklist ? { checklist: d.checklist } : {}),
+    };
+    const key = { challengeId_dayNumber: { challengeId: ch.id, dayNumber } };
+    const existing = await prisma.challengeDay.findUnique({ where: key });
+    const placeholder =
+      existing &&
+      !existing.description &&
+      !existing.hint &&
+      (existing.title === `День ${dayNumber}` || existing.title.startsWith(`День ${dayNumber}:`));
+    if (!existing) await prisma.challengeDay.create({ data: { challengeId: ch.id, dayNumber, ...data } });
+    else if (placeholder) await prisma.challengeDay.update({ where: key, data });
+  }
 }
 
 main().finally(() => prisma.$disconnect());
