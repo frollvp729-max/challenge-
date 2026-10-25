@@ -3,14 +3,14 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/db.js";
 import { config } from "../config.js";
 import { safeEqual, signAdminToken, verifyAdminToken } from "../lib/telegramAuth.js";
-import { dayNumber, localDate } from "../lib/dates.js";
-import { displayNameOf, grantAccess, recomputeEnrollment, streamLeaderboard, streamPhase } from "../services/enrollments.js";
+import { localDate } from "../lib/dates.js";
+import { challengeLeaderboard, currentDayOf, displayNameOf, grantAccess, recomputeEnrollment } from "../services/enrollments.js";
 import { enrollPaidUsers } from "../services/payments.js";
 import { imageExt, saveUpload } from "./miniapp.js";
 
 const CHALLENGE_FIELDS = [
   "slug", "title", "tagline", "intro", "rules", "coverUrl", "status", "durationDays", "priceRub", "paymentMode",
-  "tributeLink", "tributeSubscriptionId", "tributeProductId", "chatLink", "morningHour", "eveningHour",
+  "tributeLink", "tributeSubscriptionId", "tributeProductId", "chatLink", "morningHour", "eveningHour", "startDate",
   "pointsDone", "pointsProof", "pointsViolation", "streakSaveCost", "streakSavesAllowed", "sortOrder",
 ] as const;
 const DAY_FIELDS = ["title", "description", "task", "hint", "imageUrl", "points", "proofType", "proofPrompt", "proofRequired", "checklist"] as const;
@@ -18,7 +18,7 @@ const INT_FIELDS = new Set([
   "durationDays", "priceRub", "tributeSubscriptionId", "tributeProductId", "morningHour", "eveningHour",
   "pointsDone", "pointsProof", "pointsViolation", "streakSaveCost", "streakSavesAllowed", "sortOrder", "points",
 ]);
-const NULLABLE = new Set(["coverUrl", "tributeLink", "tributeSubscriptionId", "tributeProductId", "chatLink", "imageUrl", "points"]);
+const NULLABLE = new Set(["startDate", "coverUrl", "tributeLink", "tributeSubscriptionId", "tributeProductId", "chatLink", "imageUrl", "points"]);
 
 function pick(body: any, fields: readonly string[]) {
   const out: Record<string, unknown> = {};
@@ -32,6 +32,9 @@ function pick(body: any, fields: readonly string[]) {
       v = Math.trunc(v as number);
     } else if (f === "checklist") v = (Array.isArray(v) ? v : String(v).split("\n")).map((x: unknown) => String(x).trim()).filter(Boolean);
     else if (f === "proofRequired") v = Boolean(v);
+    if (f === "startDate" && v !== null && !/^\d{4}-\d{2}-\d{2}$/.test(String(v))) {
+      throw Object.assign(new Error("Дата открытия в формате ГГГГ-ММ-ДД"), { statusCode: 400 });
+    }
     out[f] = v;
   }
   return out;
@@ -69,28 +72,48 @@ export async function adminRoutes(app: FastifyInstance) {
       prisma.user.count(),
       prisma.enrollment.count({ where: { status: { in: ["ACTIVE", "COMPLETED"] } } }),
       prisma.payment.findMany({ where: { event: { in: ["new_subscription", "renewed_subscription", "new_digital_product"] } } }),
-      prisma.challenge.findMany({ include: { streams: { include: { _count: { select: { enrollments: true } } } } } }),
+      prisma.challenge.findMany({ orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }),
     ]);
     const revenue = payments.filter((p) => !p.currency || p.currency.toLowerCase() === "rub").reduce((s, p) => s + (p.amount ?? 0), 0);
-    const streams = [];
+    // По челленджам: у каждого участника свой день, поэтому считаем по личным дням
+    const live = await prisma.enrollment.findMany({
+      where: { status: { in: ["ACTIVE", "COMPLETED"] } },
+      include: { user: { select: { timezone: true } }, stream: { select: { challengeId: true } } },
+    });
+    const now = new Date();
+    const byChallenge = [];
     for (const ch of challenges) {
-      for (const s of ch.streams) {
-        const phase = streamPhase(s, ch.durationDays);
-        const day = dayNumber(s.startDate, new Date(), config.defaultTimezone);
-        let reportedToday = 0;
-        if (phase === "RUNNING") {
-          reportedToday = await prisma.report.count({ where: { dayNumber: day, enrollment: { streamId: s.id } } });
+      const mine = live.filter((e) => e.stream.challengeId === ch.id);
+      let running = 0;
+      let upcoming = 0;
+      let finished = 0;
+      const todayDays: { id: number; day: number }[] = [];
+      for (const e of mine) {
+        const day = currentDayOf(e, now);
+        if (day < 1) upcoming++;
+        else if (day > ch.durationDays) finished++;
+        else {
+          running++;
+          todayDays.push({ id: e.id, day });
         }
-        streams.push({
-          id: s.id,
-          challenge: ch.title,
-          startDate: s.startDate,
-          phase,
-          day,
-          participants: s._count.enrollments,
-          reportedToday,
+      }
+      let reportedToday = 0;
+      if (todayDays.length) {
+        reportedToday = await prisma.report.count({
+          where: { OR: todayDays.map((x) => ({ enrollmentId: x.id, dayNumber: x.day })) },
         });
       }
+      if (!mine.length && ch.status === "DRAFT") continue;
+      byChallenge.push({
+        id: ch.id,
+        challenge: ch.title,
+        startDate: ch.startDate,
+        running,
+        upcoming,
+        finished,
+        participants: mine.length,
+        reportedToday,
+      });
     }
     return {
       today,
@@ -99,7 +122,7 @@ export async function adminRoutes(app: FastifyInstance) {
       paymentsCount: payments.length,
       revenue,
       newUsers7d: await prisma.user.count({ where: { createdAt: { gt: new Date(Date.now() - 7 * 86400_000) } } }),
-      streams,
+      byChallenge,
     };
   });
 
@@ -113,7 +136,6 @@ export async function adminRoutes(app: FastifyInstance) {
       ...c,
       daysCount: c._count.days,
       participants: c.streams.reduce((s, x) => s + x._count.enrollments, 0),
-      streams: c.streams.map((s) => ({ ...s, phase: streamPhase(s, c.durationDays), participants: s._count.enrollments })),
     }));
   });
 
@@ -122,10 +144,11 @@ export async function adminRoutes(app: FastifyInstance) {
       where: { id: Number(req.params.id) },
       include: {
         days: { orderBy: { dayNumber: "asc" } },
-        streams: { orderBy: { startDate: "desc" }, include: { _count: { select: { enrollments: true } } } },
+        streams: { include: { _count: { select: { enrollments: true } } } },
       },
     });
-    return { ...c, streams: c.streams.map((s) => ({ ...s, phase: streamPhase(s, c.durationDays), participants: s._count.enrollments })) };
+    const { streams, ...rest } = c;
+    return { ...rest, participants: streams.reduce((s, x) => s + x._count.enrollments, 0) };
   });
 
   app.post("/challenges", async (req) => {
@@ -172,37 +195,15 @@ export async function adminRoutes(app: FastifyInstance) {
     return { url: config.publicUrl + url };
   });
 
-  // ---------- Потоки ----------
-  app.post<{ Params: { id: string } }>("/challenges/:id/streams", async (req) => {
-    const b = req.body as any;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b?.startDate))) throw Object.assign(new Error("Дата старта в формате ГГГГ-ММ-ДД"), { statusCode: 400 });
-    return prisma.stream.create({
-      data: { challengeId: Number(req.params.id), startDate: b.startDate, title: b.title ?? "", enrollmentOpen: b.enrollmentOpen ?? true },
-    });
-  });
-
-  app.put<{ Params: { id: string } }>("/streams/:id", async (req) => {
-    const b = req.body as any;
-    const data: Prisma.StreamUpdateInput = {};
-    if (b.title !== undefined) data.title = String(b.title);
-    if (b.enrollmentOpen !== undefined) data.enrollmentOpen = Boolean(b.enrollmentOpen);
-    if (b.startDate !== undefined) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.startDate))) throw Object.assign(new Error("Дата в формате ГГГГ-ММ-ДД"), { statusCode: 400 });
-      data.startDate = b.startDate;
-    }
-    return prisma.stream.update({ where: { id: Number(req.params.id) }, data });
-  });
-
   app.post<{ Params: { id: string } }>("/challenges/:id/enroll-paid", async (req) => enrollPaidUsers(Number(req.params.id)));
 
-  app.get<{ Params: { id: string } }>("/streams/:id/leaderboard", async (req) => streamLeaderboard(Number(req.params.id)));
+  app.get<{ Params: { id: string } }>("/challenges/:id/leaderboard", async (req) => challengeLeaderboard(Number(req.params.id)));
 
   // ---------- Участники ----------
-  app.get<{ Querystring: { q?: string; challengeId?: string; streamId?: string } }>("/participants", async (req) => {
-    const { q, challengeId, streamId } = req.query;
+  app.get<{ Querystring: { q?: string; challengeId?: string } }>("/participants", async (req) => {
+    const { q, challengeId } = req.query;
     const where: Prisma.EnrollmentWhereInput = {};
-    if (streamId) where.streamId = Number(streamId);
-    else if (challengeId) where.stream = { challengeId: Number(challengeId) };
+    if (challengeId) where.stream = { challengeId: Number(challengeId) };
     if (q) {
       const or: Prisma.UserWhereInput[] = [
         { username: { contains: q, mode: "insensitive" } },
@@ -221,8 +222,9 @@ export async function adminRoutes(app: FastifyInstance) {
     const boards = new Map<number, Map<number, number>>();
     const out = [];
     for (const e of list) {
-      if (!boards.has(e.streamId)) {
-        boards.set(e.streamId, new Map((await streamLeaderboard(e.streamId)).map((r) => [r.enrollmentId, r.rank])));
+      const chId = e.stream.challengeId;
+      if (!boards.has(chId)) {
+        boards.set(chId, new Map((await challengeLeaderboard(chId)).map((r) => [r.enrollmentId, r.rank])));
       }
       const sub = e.user.subscriptions.find((s) => s.tributeSubscriptionId === e.stream.challenge.tributeSubscriptionId);
       out.push({
@@ -233,15 +235,15 @@ export async function adminRoutes(app: FastifyInstance) {
         registeredAt: e.user.createdAt,
         goal: e.user.goal,
         challenge: e.stream.challenge.title,
-        streamStart: e.stream.startDate,
+        streamStart: e.startDate,
         source: e.source,
         payment: sub ? `${sub.status === "active" ? "активна" : "отменена"} до ${sub.expiresAt.toISOString().slice(0, 10)}` : e.source,
-        day: dayNumber(e.stream.startDate, new Date(), e.user.timezone),
+        day: currentDayOf(e),
         currentStreak: e.currentStreak,
         bestStreak: e.bestStreak,
         points: e.points,
         doneCount: e.doneCount,
-        rank: boards.get(e.streamId)!.get(e.id) ?? null,
+        rank: boards.get(chId)!.get(e.id) ?? null,
         status: e.status,
         botBlocked: e.user.botBlocked,
       });
@@ -254,15 +256,8 @@ export async function adminRoutes(app: FastifyInstance) {
     const b = req.body as any;
     const tgId = BigInt(String(b?.telegramId ?? "0"));
     const user = await prisma.user.upsert({ where: { telegramId: tgId }, create: { telegramId: tgId }, update: {} });
-    if (b.streamId) {
-      return prisma.enrollment.upsert({
-        where: { userId_streamId: { userId: user.id, streamId: Number(b.streamId) } },
-        create: { userId: user.id, streamId: Number(b.streamId), source: "admin" },
-        update: { status: "ACTIVE" },
-      });
-    }
+    if (!b.challengeId) throw Object.assign(new Error("Выбери челлендж"), { statusCode: 400 });
     const res = await grantAccess(user.id, Number(b.challengeId), "admin");
-    if (!res) throw Object.assign(new Error("Нет открытого потока"), { statusCode: 400 });
     return res.enrollment;
   });
 
@@ -273,9 +268,9 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ---------- Результаты (отчёты) ----------
-  app.get<{ Querystring: { streamId?: string; day?: string; withProof?: string } }>("/reports", async (req) => {
+  app.get<{ Querystring: { challengeId?: string; day?: string; withProof?: string } }>("/reports", async (req) => {
     const where: Prisma.ReportWhereInput = {};
-    if (req.query.streamId) where.enrollment = { streamId: Number(req.query.streamId) };
+    if (req.query.challengeId) where.enrollment = { stream: { challengeId: Number(req.query.challengeId) } };
     if (req.query.day) where.dayNumber = Number(req.query.day);
     if (req.query.withProof === "1") where.OR = [{ proofPhoto: { not: null } }, { proofText: { not: null } }];
     const list = await prisma.report.findMany({

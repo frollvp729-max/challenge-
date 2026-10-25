@@ -65,6 +65,9 @@ model Challenge {
   coverUrl     String?
   status       ChallengeStatus @default(DRAFT)
   durationDays Int             @default(30)
+  /// Дата открытия (YYYY-MM-DD): кто записался раньше, начинает в этот день.
+  /// Позже каждый начинает свои 30 дней на следующий день после оплаты.
+  startDate    String?
   /// Цена в рублях (для отображения; списывает Tribute)
   priceRub     Int             @default(490)
   paymentMode  PaymentMode     @default(SUBSCRIPTION)
@@ -128,7 +131,8 @@ enum StreamStatus {
   FINISHED
 }
 
-/// Поток — конкретный запуск челленджа с датой старта
+/// Поток — служебная группа участий челленджа. Вход бессрочный: у каждого участия
+/// свой день старта (Enrollment.startDate), поток только объединяет участия.
 model Stream {
   id          Int          @id @default(autoincrement())
   challengeId Int
@@ -154,7 +158,7 @@ enum EnrollmentStatus {
   CANCELLED
 }
 
-/// Участие пользователя в потоке
+/// Участие пользователя: один круг из durationDays дней со своей датой старта
 model Enrollment {
   id         Int              @id @default(autoincrement())
   userId     Int
@@ -162,6 +166,8 @@ model Enrollment {
   streamId   Int
   stream     Stream           @relation(fields: [streamId], references: [id], onDelete: Cascade)
   status     EnrollmentStatus @default(ACTIVE)
+  /// Личный день 1 участника (YYYY-MM-DD, по его времени)
+  startDate  String
   /// Откуда доступ: tribute_subscription | tribute_product | free | admin
   source     String           @default("admin")
   /// Денормализованные показатели (пересчитываются в recomputeEnrollment)
@@ -183,7 +189,7 @@ model Enrollment {
 
   reports Report[]
 
-  @@unique([userId, streamId])
+  @@unique([userId, streamId, startDate])
   @@index([streamId, points])
 }
 

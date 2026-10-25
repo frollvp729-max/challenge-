@@ -2,7 +2,7 @@ import { Bot, GrammyError, InlineKeyboard, type Api } from "grammy";
 import { config } from "../config.js";
 import { prisma } from "../lib/db.js";
 import { esc, introMessage, openAppKeyboard, paidMessage, priceMessage } from "./messages.js";
-import { grantAccess, pickStreamForJoin, primaryEnrollment } from "../services/enrollments.js";
+import { grantAccess, joinStartDate, primaryEnrollment } from "../services/enrollments.js";
 
 export const bot: Bot | null = config.botToken ? new Bot(config.botToken) : null;
 
@@ -98,18 +98,13 @@ export function setupBot() {
       return;
     }
     const user = await upsertFromCtx(ctx.from);
-    const stream = await pickStreamForJoin(ch.id);
     if (ch.paymentMode === "FREE") {
       const res = await grantAccess(user.id, ch.id, "free");
-      if (!res) {
-        await ctx.reply("Сейчас нет открытого потока. Мы напишем, когда откроется запись.");
-        return;
-      }
-      const m = paidMessage(res.stream, user.timezone);
+      const m = paidMessage(res.startDate, user.timezone);
       await ctx.reply(m.text.replace("Оплата получена.", "Готово!"), { reply_markup: m.keyboard });
       return;
     }
-    const m = priceMessage(ch, stream);
+    const m = priceMessage(ch, joinStartDate(ch, user.timezone));
     if (!ch.tributeLink) {
       await ctx.reply(m.text + "\n\nОплата скоро откроется.", { parse_mode: "HTML" });
       return;

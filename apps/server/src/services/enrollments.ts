@@ -1,7 +1,7 @@
 import type { Challenge, ChallengeDay, Enrollment, Report, Stream, User } from "@prisma/client";
 import { prisma } from "../lib/db.js";
 import { config } from "../config.js";
-import { dayNumber, localDate, zonedMidnight } from "../lib/dates.js";
+import { addDays, dayNumber, localDate, zonedMidnight } from "../lib/dates.js";
 import { computeScore, earnedRewards, REWARDS, type ScoreResult, type ScoringRules } from "../lib/scoring.js";
 
 export type EnrollmentFull = Enrollment & {
@@ -22,16 +22,27 @@ export function rulesOf(challenge: Challenge, days?: Pick<ChallengeDay, "dayNumb
   };
 }
 
-export function currentDayOf(e: { user: Pick<User, "timezone">; stream: Pick<Stream, "startDate"> }, now = new Date()) {
-  return dayNumber(e.stream.startDate, now, e.user.timezone || config.defaultTimezone);
+/** Личный номер дня участника: 1 в день его старта */
+export function currentDayOf(e: Pick<Enrollment, "startDate"> & { user: Pick<User, "timezone"> }, now = new Date()) {
+  return dayNumber(e.startDate, now, e.user.timezone || config.defaultTimezone);
 }
 
-/** Статус потока по московскому времени (для админки и выбора потока при оплате) */
-export function streamPhase(stream: Pick<Stream, "startDate">, durationDays: number, now = new Date()) {
-  const d = dayNumber(stream.startDate, now, config.defaultTimezone);
-  if (d < 1) return "UPCOMING" as const;
-  if (d > durationDays) return "FINISHED" as const;
-  return "RUNNING" as const;
+/**
+ * День старта для нового участника: до даты открытия — дата открытия,
+ * после неё — следующий день после записи (по времени участника).
+ */
+export function joinStartDate(ch: Pick<Challenge, "startDate">, tz: string, now = new Date()): string {
+  const tomorrow = addDays(localDate(now, tz || config.defaultTimezone), 1);
+  return ch.startDate && ch.startDate > tomorrow ? ch.startDate : tomorrow;
+}
+
+/** Служебный поток челленджа, в который попадают все новые участия */
+export async function mainStream(ch: Pick<Challenge, "id" | "startDate">): Promise<Stream> {
+  const s = await prisma.stream.findFirst({ where: { challengeId: ch.id }, orderBy: { id: "asc" } });
+  if (s) return s;
+  return prisma.stream.create({
+    data: { challengeId: ch.id, title: "Бессрочный", startDate: ch.startDate ?? localDate(new Date(), config.defaultTimezone) },
+  });
 }
 
 export async function scoreEnrollment(e: EnrollmentFull, reports?: Report[], now = new Date()): Promise<ScoreResult> {
@@ -78,24 +89,122 @@ export async function recomputeEnrollment(enrollmentId: number, now = new Date()
   });
 }
 
-/** Рейтинг потока: баллы, затем серия, затем число выполненных дней */
-export async function streamLeaderboard(streamId: number) {
+type BoardRow = {
+  rank: number;
+  enrollmentId: number;
+  userId: number;
+  name: string;
+  photoUrl: string | null;
+  points: number;
+  currentStreak: number;
+  bestStreak: number;
+  doneCount: number;
+  /** Личный день участника (не больше длительности) */
+  day: number;
+  finished: boolean;
+};
+
+/** Один ряд на человека: у смотрящего — его текущее участие, у остальных — лучший круг */
+function rankRows<T extends { enrollmentId: number; userId: number; points: number; currentStreak: number; doneCount: number; createdAt: Date }>(
+  rows: T[],
+  viewerEnrollmentId?: number,
+): Array<T & { rank: number }> {
+  const viewer = rows.find((r) => r.enrollmentId === viewerEnrollmentId);
+  const best = new Map<number, T>();
+  for (const r of rows) {
+    if (viewer && r.userId === viewer.userId) continue;
+    const cur = best.get(r.userId);
+    if (!cur || r.points > cur.points) best.set(r.userId, r);
+  }
+  const list = [...best.values(), ...(viewer ? [viewer] : [])];
+  list.sort(
+    (a, b) =>
+      b.points - a.points ||
+      b.currentStreak - a.currentStreak ||
+      b.doneCount - a.doneCount ||
+      a.createdAt.getTime() - b.createdAt.getTime(),
+  );
+  return list.map((r, i) => ({ ...r, rank: i + 1 }));
+}
+
+/**
+ * Общий рейтинг челленджа: все, кто уже начал свои 30 дней, в любое время.
+ * Баллы, затем серия, затем число выполненных дней.
+ */
+export async function challengeLeaderboard(challengeId: number, viewerEnrollmentId?: number, now = new Date()): Promise<BoardRow[]> {
   const list = await prisma.enrollment.findMany({
-    where: { streamId, status: { in: ["ACTIVE", "COMPLETED"] } },
-    include: { user: true },
-    orderBy: [{ points: "desc" }, { currentStreak: "desc" }, { doneCount: "desc" }, { createdAt: "asc" }],
+    where: { stream: { challengeId }, status: { in: ["ACTIVE", "COMPLETED"] } },
+    include: { user: true, stream: { select: { challenge: { select: { durationDays: true } } } } },
   });
-  return list.map((e, i) => ({
-    rank: i + 1,
-    enrollmentId: e.id,
-    userId: e.userId,
-    name: displayNameOf(e.user),
-    photoUrl: e.user.photoUrl,
-    points: e.points,
-    currentStreak: e.currentStreak,
-    bestStreak: e.bestStreak,
-    doneCount: e.doneCount,
-  }));
+  const rows = list
+    .map((e) => {
+      const dur = e.stream.challenge.durationDays;
+      const day = currentDayOf(e, now);
+      return {
+        enrollmentId: e.id,
+        userId: e.userId,
+        name: displayNameOf(e.user),
+        photoUrl: e.user.photoUrl,
+        points: e.points,
+        currentStreak: e.currentStreak,
+        bestStreak: e.bestStreak,
+        doneCount: e.doneCount,
+        day: Math.min(day, dur),
+        finished: day > dur,
+        started: day >= 1,
+        createdAt: e.createdAt,
+      };
+    })
+    .filter((r) => r.started || r.enrollmentId === viewerEnrollmentId);
+  return rankRows(rows, viewerEnrollmentId).map(({ createdAt: _c, started: _s, ...r }) => r);
+}
+
+/**
+ * Сравнение на одном и том же личном дне: очки каждого за его дни 1…N,
+ * где N — сегодняшний день смотрящего. В сравнение попадают те, кто день N уже прошёл.
+ */
+export async function sameDayLeaderboard(e: EnrollmentFull, now = new Date()) {
+  const ch = e.stream.challenge;
+  const n = Math.min(currentDayOf(e, now), ch.durationDays);
+  if (n < 1) return { day: n, rows: [] as Array<Omit<BoardRow, "bestStreak" | "finished" | "day"> & { day: number }> };
+  const [list, days] = await Promise.all([
+    prisma.enrollment.findMany({
+      where: { stream: { challengeId: ch.id }, status: { in: ["ACTIVE", "COMPLETED"] } },
+      include: { user: true, reports: true },
+    }),
+    prisma.challengeDay.findMany({ where: { challengeId: ch.id }, select: { dayNumber: true, points: true } }),
+  ]);
+  const rules = rulesOf(ch, days);
+  const rows = [];
+  for (const x of list) {
+    const isMe = x.id === e.id;
+    if (!isMe && currentDayOf(x, now) <= n) continue;
+    const s = computeScore(
+      rules,
+      isMe ? currentDayOf(x, now) : n + 1,
+      x.reports
+        .filter((r) => r.dayNumber <= n)
+        .map((r) => ({
+          dayNumber: r.dayNumber,
+          status: r.status,
+          hasProof: Boolean(r.proofPhoto || (r.proofText && r.proofText.trim())),
+          proofRejected: r.proofRejected,
+        })),
+      x.savedDays.filter((d) => d <= n),
+    );
+    rows.push({
+      enrollmentId: x.id,
+      userId: x.userId,
+      name: displayNameOf(x.user),
+      photoUrl: x.user.photoUrl,
+      points: s.points,
+      currentStreak: s.currentStreak,
+      doneCount: s.doneCount,
+      day: n,
+      createdAt: x.createdAt,
+    });
+  }
+  return { day: n, rows: rankRows(rows, e.id).map(({ createdAt: _c, ...r }) => r) };
 }
 
 export function displayNameOf(u: Pick<User, "displayName" | "firstName" | "username">) {
@@ -109,7 +218,7 @@ export async function enrollmentState(e: EnrollmentFull, now = new Date()) {
   const day = currentDayOf(e, now);
   const reports = await prisma.report.findMany({ where: { enrollmentId: e.id }, orderBy: { dayNumber: "asc" } });
   const score = await scoreEnrollment(e, reports, now);
-  const board = await streamLeaderboard(e.streamId);
+  const board = await challengeLeaderboard(ch.id, e.id, now);
   const me = board.find((b) => b.enrollmentId === e.id);
   const finished = day > ch.durationDays;
   const rewards = earnedRewards(score, { durationDays: ch.durationDays, finished, rank: me?.rank ?? null });
@@ -118,7 +227,7 @@ export async function enrollmentState(e: EnrollmentFull, now = new Date()) {
     ? await prisma.challengeDay.findUnique({ where: { challengeId_dayNumber: { challengeId: ch.id, dayNumber: todayDay } } })
     : null;
   const todayReport = todayDay ? reports.find((r) => r.dayNumber === todayDay) ?? null : null;
-  const startsAt = zonedMidnight(e.stream.startDate, tz);
+  const startsAt = zonedMidnight(e.startDate, tz);
   const canSaveStreak =
     score.streakBreakDay !== null && e.streakSavesUsed < ch.streakSavesAllowed && !e.savedDays.includes(score.streakBreakDay);
 
@@ -138,7 +247,8 @@ export async function enrollmentState(e: EnrollmentFull, now = new Date()) {
       pointsViolation: ch.pointsViolation,
       streakSaveCost: ch.streakSaveCost,
     },
-    stream: { id: e.stream.id, startDate: e.stream.startDate, startsAt: startsAt.toISOString() },
+    /** Личный старт участника */
+    stream: { id: e.stream.id, startDate: e.startDate, startsAt: startsAt.toISOString() },
     phase: day < 1 ? "upcoming" : finished ? "finished" : "running",
     today: localDate(now, tz),
     day,
@@ -191,41 +301,41 @@ export function serializeReport(r: Report) {
 }
 
 /**
- * Выбрать поток для нового участника: ближайший будущий с открытой записью,
- * иначе идущий сейчас с открытой записью.
+ * Выдать доступ к челленджу. Если у пользователя уже есть идущий или будущий круг,
+ * ничего не меняется. Иначе создаётся новый круг со старта на следующий день
+ * (или в дату открытия челленджа, если она ещё не наступила).
+ * renewal: продление подписки — следующий круг встаёт сразу после текущего.
  */
-export async function pickStreamForJoin(challengeId: number, now = new Date()) {
+export async function grantAccess(
+  userId: number,
+  challengeId: number,
+  source: string,
+  now = new Date(),
+  opts: { renewal?: boolean } = {},
+) {
   const ch = await prisma.challenge.findUniqueOrThrow({ where: { id: challengeId } });
-  const streams = await prisma.stream.findMany({
-    where: { challengeId, enrollmentOpen: true },
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  const existing = await prisma.enrollment.findMany({
+    where: { userId, stream: { challengeId }, status: "ACTIVE" },
     orderBy: { startDate: "asc" },
   });
-  const upcoming = streams.find((s) => streamPhase(s, ch.durationDays, now) === "UPCOMING");
-  if (upcoming) return upcoming;
-  return streams.find((s) => streamPhase(s, ch.durationDays, now) === "RUNNING") ?? null;
-}
-
-/**
- * Выдать доступ к челленджу. Если пользователь уже в идущем или будущем потоке
- * этого челленджа, ничего не меняется. Иначе записываем в подходящий поток.
- * Возвращает участие (новое или существующее) или null, если открытого потока нет.
- */
-export async function grantAccess(userId: number, challengeId: number, source: string, now = new Date()) {
-  const ch = await prisma.challenge.findUniqueOrThrow({ where: { id: challengeId } });
-  const existing = await prisma.enrollment.findMany({
-    where: { userId, stream: { challengeId }, status: { in: ["ACTIVE"] } },
-    include: { stream: true },
-  });
-  const live = existing.find((e) => streamPhase(e.stream, ch.durationDays, now) !== "FINISHED");
-  if (live) return { enrollment: live, created: false, stream: live.stream };
-  const stream = await pickStreamForJoin(challengeId, now);
-  if (!stream) return null;
+  const live = existing.filter((e) => currentDayOf({ ...e, user }, now) <= ch.durationDays);
+  let startDate = joinStartDate(ch, user.timezone, now);
+  if (live.length) {
+    const last = live[live.length - 1];
+    const lastDay = currentDayOf({ ...last, user }, now);
+    // уже есть круг впереди, или это не продление, — ничего не создаём
+    if (!opts.renewal || live.length > 1 || lastDay < 1) return { enrollment: last, created: false, startDate: last.startDate };
+    const after = addDays(last.startDate, ch.durationDays);
+    if (after > startDate) startDate = after;
+  }
+  const stream = await mainStream(ch);
   const enrollment = await prisma.enrollment.upsert({
-    where: { userId_streamId: { userId, streamId: stream.id } },
-    create: { userId, streamId: stream.id, source },
+    where: { userId_streamId_startDate: { userId, streamId: stream.id, startDate } },
+    create: { userId, streamId: stream.id, startDate, source },
     update: { status: "ACTIVE", source },
   });
-  return { enrollment, created: true, stream };
+  return { enrollment, created: true, startDate };
 }
 
 /** Главное участие пользователя: идущее, затем ближайшее будущее, затем последнее завершённое */
@@ -233,7 +343,7 @@ export async function primaryEnrollment(userId: number, now = new Date()): Promi
   const list = await prisma.enrollment.findMany({
     where: { userId, status: { in: ["ACTIVE", "COMPLETED"] } },
     include: { user: true, stream: { include: { challenge: true } } },
-    orderBy: { stream: { startDate: "desc" } },
+    orderBy: { startDate: "desc" },
   });
   if (!list.length) return null;
   const withDay = list.map((e) => ({ e, day: currentDayOf(e, now), dur: e.stream.challenge.durationDays }));

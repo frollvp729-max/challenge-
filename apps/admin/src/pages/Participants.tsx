@@ -22,34 +22,33 @@ interface Row {
 interface Ch {
   id: number;
   title: string;
-  streams: { id: number; startDate: string; title: string }[];
 }
 
 const ST: Record<string, string> = { ACTIVE: "Активен", COMPLETED: "Завершил", CANCELLED: "Отключён" };
 
-export function Participants({ initialStream }: { initialStream: string }) {
+export function Participants({ initialChallenge }: { initialChallenge: string }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [chs, setChs] = useState<Ch[]>([]);
-  const [stream, setStream] = useState(initialStream);
+  const [challenge, setChallenge] = useState(initialChallenge);
   const [q, setQ] = useState("");
   const [err, setErr] = useState("");
   const [grantTg, setGrantTg] = useState("");
 
   const load = () => {
     const p = new URLSearchParams();
-    if (stream) p.set("streamId", stream);
+    if (challenge) p.set("challengeId", challenge);
     if (q) p.set("q", q);
     api.get<Row[]>(`/participants?${p}`).then(setRows).catch((e) => setErr(e.message));
   };
   useEffect(() => {
     api.get<Ch[]>("/challenges").then(setChs);
   }, []);
-  useEffect(load, [stream]);
+  useEffect(load, [challenge]);
 
-  const sorted = stream ? [...rows].sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9)) : rows;
+  const sorted = challenge ? [...rows].sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9)) : rows;
 
   const exportCsv = () => {
-    const head = ["telegramId", "username", "name", "registeredAt", "challenge", "streamStart", "payment", "day", "streak", "points", "rank", "status"];
+    const head = ["telegramId", "username", "name", "registeredAt", "challenge", "day1", "payment", "day", "streak", "points", "rank", "status"];
     const lines = sorted.map((r) =>
       [r.telegramId, r.username ?? "", r.name, r.registeredAt.slice(0, 10), r.challenge, r.streamStart, r.payment, r.day, r.currentStreak, r.points, r.rank ?? "", r.status]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
@@ -68,7 +67,7 @@ export function Participants({ initialStream }: { initialStream: string }) {
   };
   const grant = async () => {
     try {
-      await api.post("/participants", { telegramId: grantTg, streamId: Number(stream) });
+      await api.post("/participants", { telegramId: grantTg, challengeId: Number(challenge) });
       setGrantTg("");
       load();
     } catch (e) {
@@ -78,18 +77,14 @@ export function Participants({ initialStream }: { initialStream: string }) {
 
   return (
     <>
-      <h1>Участники {stream ? "и рейтинг потока" : ""}</h1>
+      <h1>Участники {challenge ? "и рейтинг челленджа" : ""}</h1>
       {err && <div className="error">{err}</div>}
       <div className="row">
-        <select value={stream} onChange={(e) => setStream(e.target.value)}>
-          <option value="">Все потоки</option>
-          {chs.flatMap((c) =>
-            c.streams.map((s) => (
-              <option key={s.id} value={s.id}>
-                {c.title} — {s.startDate} {s.title}
-              </option>
-            )),
-          )}
+        <select value={challenge} onChange={(e) => setChallenge(e.target.value)}>
+          <option value="">Все челленджи</option>
+          {chs.map((c) => (
+            <option key={c.id} value={c.id}>{c.title}</option>
+          ))}
         </select>
         <input placeholder="Поиск: имя, @username, Telegram ID" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
         <button onClick={load}>Найти</button>
@@ -110,9 +105,9 @@ export function Participants({ initialStream }: { initialStream: string }) {
               <td>{r.name}{r.botBlocked && <span className="muted"> (бот заблокирован)</span>}</td>
               <td>{r.username ? `@${r.username}` : ""}</td>
               <td>{r.registeredAt.slice(0, 10)}</td>
-              <td>{r.challenge}<div className="muted">{r.streamStart}</div></td>
+              <td>{r.challenge}<div className="muted">день 1: {r.streamStart}</div></td>
               <td>{r.payment}</td>
-              <td>{r.day < 1 ? "до старта" : r.day}</td>
+              <td>{r.day < 1 ? "до старта" : r.day > 30 ? "завершил" : r.day}</td>
               <td>🔥 {r.currentStreak} <span className="muted">(рекорд {r.bestStreak})</span></td>
               <td><b>{r.points}</b></td>
               <td>{ST[r.status]}</td>
@@ -127,14 +122,14 @@ export function Participants({ initialStream }: { initialStream: string }) {
           ))}
         </tbody>
       </table>
-      {stream && (
+      {challenge && (
         <>
           <h2>Добавить участника вручную</h2>
           <div className="row">
             <input placeholder="Telegram ID" value={grantTg} onChange={(e) => setGrantTg(e.target.value.replace(/\D/g, ""))} />
-            <button className="primary" disabled={!grantTg} onClick={grant}>Добавить в поток</button>
+            <button className="primary" disabled={!grantTg} onClick={grant}>Добавить в челлендж</button>
           </div>
-          <p className="muted">Для подарков, тестов и оплат мимо Tribute. Telegram ID можно узнать у @userinfobot.</p>
+          <p className="muted">Для подарков, тестов и оплат мимо Tribute. Старт по тем же правилам, что и при оплате. Telegram ID можно узнать у @userinfobot.</p>
         </>
       )}
     </>

@@ -58,3 +58,10 @@ export const GOALS: Array<[string, string]> = [
   ["willpower", "проверить силу воли"],
   ["other", "другое"],
 ];
+
+/** Завтрашняя дата YYYY-MM-DD по времени устройства */
+export function tomorrowIso() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}

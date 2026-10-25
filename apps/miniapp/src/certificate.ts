@@ -61,7 +61,7 @@ export async function drawCertificate(opts: {
   await QRCode.toCanvas(qr, opts.link, { width: 260, margin: 1, color: { dark: "#3a2410", light: "#fff8ec" } });
   g.drawImage(qr, W / 2 - 130, 930);
   g.font = font(26);
-  g.fillText("Присоединяйся к следующему потоку", W / 2, 1230);
+  g.fillText("Присоединяйся: старт в любой день", W / 2, 1230);
 
   return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("toBlob"))), "image/png"));
 }
