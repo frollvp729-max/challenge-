@@ -53,7 +53,11 @@ async function onSubscriptionPaid(name: string, p: TributeSubscriptionPayload, r
     challengeId: challenge?.id,
     raw: raw as unknown as Prisma.InputJsonValue,
   });
-  if (!fresh) return { ok: true, action: "duplicate" };
+  if (!fresh) {
+    // Повтор вебхука. Если в прошлый раз доступ не выдался (ошибка на середине), выдать сейчас.
+    if (challenge) await grantAccess(user.id, challenge.id, "tribute_subscription");
+    return { ok: true, action: "duplicate" };
+  }
 
   await prisma.subscription.upsert({
     where: { userId_tributeSubscriptionId: { userId: user.id, tributeSubscriptionId: p.subscription_id } },
@@ -129,12 +133,35 @@ async function onDigitalProduct(p: TributeDigitalProductPayload, raw: TributeEve
     challengeId: challenge?.id,
     raw: raw as unknown as Prisma.InputJsonValue,
   });
-  if (!fresh) return { ok: true, action: "duplicate" };
-  if (!challenge) return { ok: true, action: "unmapped_product" };
+  if (!fresh) {
+    if (challenge) await grantAccess(user.id, challenge.id, "tribute_product");
+    return { ok: true, action: "duplicate" };
+  }
+  if (!challenge) {
+    console.warn(`Tribute: товар ${p.product_id} не привязан ни к одному челленджу`);
+    return { ok: true, action: "unmapped_product" };
+  }
   const res = await grantAccess(user.id, challenge.id, "tribute_product");
   const m = paidMessage(res.startDate, user.timezone);
   await sendTo(user.telegramId, m.text, m.keyboard);
   return { ok: true, action: res.created ? "enrolled" : "already_enrolled" };
+}
+
+/** Привязать к челленджу платежи, пришедшие до того, как в нём указали subscription_id / product_id */
+export async function linkPayments(challengeId: number) {
+  const ch = await prisma.challenge.findUniqueOrThrow({ where: { id: challengeId } });
+  const keys: Array<[string, number]> = [];
+  if (ch.tributeSubscriptionId) keys.push(["subscription_id", ch.tributeSubscriptionId]);
+  if (ch.tributeProductId) keys.push(["product_id", ch.tributeProductId]);
+  let linked = 0;
+  for (const [key, value] of keys) {
+    const r = await prisma.payment.updateMany({
+      where: { challengeId: null, raw: { path: ["payload", key], equals: value } },
+      data: { challengeId },
+    });
+    linked += r.count;
+  }
+  return { linked };
 }
 
 /**
@@ -142,6 +169,7 @@ async function onDigitalProduct(p: TributeDigitalProductPayload, raw: TributeEve
  * Нужна, когда оплата пришла до того, как подписку привязали к челленджу.
  */
 export async function enrollPaidUsers(challengeId: number) {
+  await linkPayments(challengeId);
   const ch = await prisma.challenge.findUniqueOrThrow({ where: { id: challengeId } });
   const userIds = new Set<number>();
   if (ch.tributeSubscriptionId) {

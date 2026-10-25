@@ -40,7 +40,7 @@ export function Payments() {
                 {p.raw?.payload?.subscription_id ? `subscription_id ${p.raw.payload.subscription_id}` : p.raw?.payload?.product_id ? `product_id ${p.raw.payload.product_id}` : "—"}
                 <div className="muted small">{p.raw?.payload?.subscription_name ?? p.raw?.payload?.product_name}</div>
               </td>
-              <td>{p.challengeId ?? <span className="muted">не привязан</span>}</td>
+              <td>{p.challengeId ?? <span className="muted">не привязан: впишите этот ID в челлендж (Настройки → subscription_id) и сохраните</span>}</td>
             </tr>
           ))}
         </tbody>
