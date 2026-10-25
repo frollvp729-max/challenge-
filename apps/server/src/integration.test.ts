@@ -120,3 +120,47 @@ test("оплата Tribute → челлендж → отчёт", { skip: !proces
     await prisma.$disconnect();
   }
 });
+
+test("оплата до того, как вписали subscription_id → запись при сохранении челленджа", { skip: !process.env.DATABASE_URL }, async () => {
+  const { buildApp } = await import("./app.js");
+  const { prisma } = await import("./lib/db.js");
+  const app = await buildApp();
+  const tgId = 910000000 + Math.floor(Math.random() * 1000000);
+  const subId = 800000 + Math.floor(Math.random() * 100000);
+  const login = await app.inject({ method: "POST", url: "/admin/api/login", payload: { password: "secret" } });
+  const auth = { authorization: `Bearer ${login.json().token}` };
+  const ch = await prisma.challenge.findUniqueOrThrow({ where: { slug: "no-sugar" } });
+  await prisma.challenge.update({ where: { id: ch.id }, data: { tributeSubscriptionId: null } });
+  try {
+    const body = JSON.stringify({
+      name: "new_subscription",
+      payload: {
+        subscription_name: "30 дней без сахара",
+        subscription_id: subId,
+        amount: 49000,
+        currency: "rub",
+        telegram_user_id: tgId,
+        expires_at: new Date(Date.now() + 30 * 86400_000).toISOString(),
+      },
+    });
+    const sig = crypto.createHmac("sha256", "test-key").update(body).digest("hex");
+    const res = await app.inject({ method: "POST", url: "/webhooks/tribute", headers: { "content-type": "application/json", "trbt-signature": sig }, body });
+    assert.equal(res.json().result.action, "unmapped_subscription");
+    assert.equal(await prisma.enrollment.count({ where: { user: { telegramId: BigInt(tgId) } } }), 0);
+
+    const put = await app.inject({ method: "PUT", url: `/admin/api/challenges/${ch.id}`, headers: auth, payload: { tributeSubscriptionId: subId } });
+    assert.equal(put.json().enrolled, 1, put.body);
+    assert.equal(await prisma.enrollment.count({ where: { user: { telegramId: BigInt(tgId) } } }), 1);
+    const pay = await prisma.payment.findFirstOrThrow({ where: { raw: { path: ["payload", "telegram_user_id"], equals: tgId } } });
+    assert.equal(pay.challengeId, ch.id);
+    // повторное сохранение второй раз не записывает
+    const again = await app.inject({ method: "PUT", url: `/admin/api/challenges/${ch.id}`, headers: auth, payload: { tributeSubscriptionId: subId } });
+    assert.equal(again.json().enrolled, 0);
+  } finally {
+    await prisma.challenge.update({ where: { id: ch.id }, data: { tributeSubscriptionId: null } });
+    await prisma.payment.deleteMany({ where: { raw: { path: ["payload", "telegram_user_id"], equals: tgId } } });
+    await prisma.user.deleteMany({ where: { telegramId: BigInt(tgId) } });
+    await app.close();
+    await prisma.$disconnect();
+  }
+});

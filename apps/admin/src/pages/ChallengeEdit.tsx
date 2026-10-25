@@ -149,7 +149,10 @@ export function ChallengeEdit({ id }: { id: number }) {
   const saveSettings = () => {
     const body: Record<string, unknown> = {};
     for (const [, fields] of SETTINGS) for (const [k] of fields) body[k] = draft[k];
-    return wrap(() => api.put(`/challenges/${id}`, body), "Сохранено");
+    return wrap(async () => {
+      const r = await api.put<{ enrolled?: number }>(`/challenges/${id}`, body);
+      if (r.enrolled) alert(`Записаны оплатившие: ${r.enrolled}`);
+    }, "Сохранено");
   };
 
   return (

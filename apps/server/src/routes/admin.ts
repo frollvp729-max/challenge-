@@ -159,7 +159,10 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.put<{ Params: { id: string } }>("/challenges/:id", async (req) => {
     const data = pick(req.body, CHALLENGE_FIELDS);
-    return prisma.challenge.update({ where: { id: Number(req.params.id) }, data });
+    const ch = await prisma.challenge.update({ where: { id: Number(req.params.id) }, data });
+    // вписали subscription_id / product_id — записать тех, кто уже оплатил
+    const { enrolled } = data.tributeSubscriptionId || data.tributeProductId ? await enrollPaidUsers(ch.id) : { enrolled: 0 };
+    return { ...ch, enrolled };
   });
 
   /** Создать недостающие дни (1..durationDays) по шаблону */
