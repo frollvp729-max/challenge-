@@ -6,6 +6,8 @@
  * короткое стояние босиком), с поправкой на данные о холодовом шоке.
  */
 
+import type { ChallengeContent } from "./types.js";
+
 export type ColdDay = {
   title: string;
   description: string;
@@ -566,3 +568,5 @@ export const COLD_DAYS: ColdDay[] = [
     proofPrompt: "Чем ты сегодня отличаешься от себя в день 1?",
   },
 ];
+
+export const COLD: ChallengeContent = { slug: COLD_SLUG, ...COLD_CHALLENGE, days: COLD_DAYS };
