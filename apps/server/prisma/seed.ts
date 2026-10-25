@@ -257,27 +257,37 @@ async function main() {
     });
   }
 
-  // Холодный душ: черновик создан выше, заполняем тексты, только если их ещё не правили в админке
+  // Холодный душ: черновик создан выше. Заполняем только пустые поля и дни-заготовки
+  // («День N» без описания и подсказки, как их создаёт кнопка в админке), правки из админки не трогаем
   const cold = await prisma.challenge.findUniqueOrThrow({ where: { slug: COLD_SLUG } });
-  if (!cold.intro && !cold.rules) {
-    await prisma.challenge.update({ where: { id: cold.id }, data: COLD_CHALLENGE });
-  }
+  const draft = DRAFTS.find(([slug]) => slug === COLD_SLUG)!;
+  await prisma.challenge.update({
+    where: { id: cold.id },
+    data: {
+      title: cold.title === draft[1] ? COLD_CHALLENGE.title : cold.title,
+      tagline: !cold.tagline || cold.tagline === draft[2] ? COLD_CHALLENGE.tagline : cold.tagline,
+      intro: cold.intro || COLD_CHALLENGE.intro,
+      rules: cold.rules || COLD_CHALLENGE.rules,
+    },
+  });
   for (let i = 0; i < COLD_DAYS.length; i++) {
     const d = COLD_DAYS[i];
-    await prisma.challengeDay.upsert({
-      where: { challengeId_dayNumber: { challengeId: cold.id, dayNumber: i + 1 } },
-      update: {},
-      create: {
-        challengeId: cold.id,
-        dayNumber: i + 1,
-        title: d.title,
-        description: d.description,
-        task: d.task,
-        hint: d.hint,
-        proofType: d.proofType ?? "photo_or_text",
-        proofPrompt: d.proofPrompt,
-      },
-    });
+    const dayNumber = i + 1;
+    const content = {
+      title: d.title,
+      description: d.description,
+      task: d.task,
+      hint: d.hint,
+      proofType: d.proofType ?? "photo_or_text",
+      proofPrompt: d.proofPrompt,
+    };
+    const key = { challengeId_dayNumber: { challengeId: cold.id, dayNumber } };
+    const existing = await prisma.challengeDay.findUnique({ where: key });
+    if (!existing) {
+      await prisma.challengeDay.create({ data: { challengeId: cold.id, dayNumber, ...content } });
+    } else if (existing.title === `День ${dayNumber}` && !existing.description && !existing.hint) {
+      await prisma.challengeDay.update({ where: key, data: content });
+    }
   }
   if (!(await prisma.stream.count({ where: { challengeId: cold.id } }))) {
     await prisma.stream.create({ data: { challengeId: cold.id, startDate: "2026-11-01", title: "Поток 1" } });
