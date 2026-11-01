@@ -46,3 +46,36 @@ export interface TributeDigitalProductPayload {
   telegram_user_id?: number;
   telegram_username?: string;
 }
+
+/** Код товара из ссылки Tribute: t.me/tribute/app?startapp=pf6 и web.tribute.tg/p/f6 → «f6» */
+export function tributeProductCode(link: string | null | undefined): string | null {
+  if (!link) return null;
+  const m = link.match(/[?&]startapp=p([A-Za-z0-9_-]+)/) ?? link.match(/tribute\.tg\/p\/([A-Za-z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+
+export interface TributeProduct {
+  id: number;
+  name: string;
+  link?: string;
+  webLink?: string;
+}
+
+/** Товар по id через API Tribute (GET /products/{id}). null — API недоступен или товара нет. */
+export async function fetchTributeProduct(id: number, apiKey: string): Promise<TributeProduct | null> {
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(`https://tribute.tg/api/v1/products/${id}`, {
+      headers: { "Api-Key": apiKey },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      console.warn(`Tribute API: товар ${id} — HTTP ${res.status}`);
+      return null;
+    }
+    return (await res.json()) as TributeProduct;
+  } catch (err) {
+    console.warn(`Tribute API: товар ${id} — ${(err as Error).message}`);
+    return null;
+  }
+}

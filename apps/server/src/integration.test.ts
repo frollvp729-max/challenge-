@@ -164,3 +164,84 @@ test("оплата до того, как вписали subscription_id → за
     await prisma.$disconnect();
   }
 });
+
+test("код товара из ссылки Tribute", async () => {
+  const { tributeProductCode } = await import("./lib/tribute.js");
+  assert.equal(tributeProductCode("https://t.me/tribute/app?startapp=pf6"), "f6");
+  assert.equal(tributeProductCode("https://t.me/tribute_bot/app?startapp=pAb-9"), "Ab-9");
+  assert.equal(tributeProductCode("https://web.tribute.tg/p/f6"), "f6");
+  assert.equal(tributeProductCode("https://t.me/tribute/app?startapp=sXYZ"), null);
+  assert.equal(tributeProductCode(null), null);
+});
+
+test("покупка товара без вписанного product_id → челлендж находится по ссылке на оплату", { skip: !process.env.DATABASE_URL }, async () => {
+  const { buildApp } = await import("./app.js");
+  const { prisma } = await import("./lib/db.js");
+  const app = await buildApp();
+  const tgA = 920000000 + Math.floor(Math.random() * 1000000);
+  const tgB = tgA + 1;
+  const productId = 600000 + Math.floor(Math.random() * 100000);
+  const ch = await prisma.challenge.findUniqueOrThrow({ where: { slug: "no-sugar" } });
+  await prisma.challenge.update({
+    where: { id: ch.id },
+    data: { tributeProductId: null, tributeLink: "https://t.me/tribute/app?startapp=pQx7", startDate: "2020-01-01" },
+  });
+  const realFetch = globalThis.fetch;
+  let apiUp = false;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    assert.equal(String(url), `https://tribute.tg/api/v1/products/${productId}`);
+    assert.equal((init?.headers as Record<string, string>)["Api-Key"], "test-key");
+    if (!apiUp) return new Response("down", { status: 503 });
+    return Response.json({ id: productId, name: "Другое имя", link: "https://t.me/tribute_bot/app?startapp=pQx7", webLink: "https://web.tribute.tg/p/Qx7" });
+  }) as typeof fetch;
+  const buy = async (tgId: number, purchaseId: number) => {
+    const body = JSON.stringify({
+      name: "new_digital_product",
+      payload: { product_id: productId, product_name: "Другое имя", amount: 49000, currency: "rub", purchase_id: purchaseId, transaction_id: purchaseId, telegram_user_id: tgId, purchase_created_at: new Date().toISOString() },
+    });
+    const sig = crypto.createHmac("sha256", "test-key").update(body).digest("hex");
+    const res = await app.inject({ method: "POST", url: "/webhooks/tribute", headers: { "content-type": "application/json", "trbt-signature": sig }, body });
+    return res.json().result.action as string;
+  };
+  const enrolled = (tgId: number) => prisma.enrollment.count({ where: { user: { telegramId: BigInt(tgId) }, stream: { challengeId: ch.id } } });
+  try {
+    // API Tribute недоступен, название не совпадает → пока не привязан
+    assert.equal(await buy(tgA, productId * 10 + 1), "unmapped_product");
+    assert.equal(await enrolled(tgA), 0);
+    // следующая покупка: API отвечает, ссылка совпала → привязка и запись обоих
+    apiUp = true;
+    assert.equal(await buy(tgB, productId * 10 + 2), "enrolled");
+    assert.equal((await prisma.challenge.findUniqueOrThrow({ where: { id: ch.id } })).tributeProductId, productId);
+    assert.equal(await enrolled(tgB), 1);
+    assert.equal(await enrolled(tgA), 1);
+  } finally {
+    globalThis.fetch = realFetch;
+    await prisma.challenge.update({ where: { id: ch.id }, data: { tributeProductId: null, tributeLink: null } });
+    for (const t of [tgA, tgB]) {
+      await prisma.payment.deleteMany({ where: { raw: { path: ["payload", "telegram_user_id"], equals: t } } });
+      await prisma.user.deleteMany({ where: { telegramId: BigInt(t) } });
+    }
+    await app.close();
+    await prisma.$disconnect();
+  }
+});
+
+test("без API Tribute товар находится по названию, если подходит ровно один челлендж", { skip: !process.env.DATABASE_URL }, async () => {
+  const { prisma } = await import("./lib/db.js");
+  const { challengeForProduct } = await import("./services/payments.js");
+  const ch = await prisma.challenge.findUniqueOrThrow({ where: { slug: "no-sugar" } });
+  const productId = 500000 + Math.floor(Math.random() * 100000);
+  await prisma.challenge.update({ where: { id: ch.id }, data: { tributeProductId: null, tributeLink: "https://t.me/tribute/app?startapp=pZz1" } });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response("down", { status: 503 })) as typeof fetch;
+  try {
+    const found = await challengeForProduct(productId, `Челлендж «${ch.title.toUpperCase()}»`);
+    assert.equal(found?.id, ch.id);
+    assert.equal(found?.autoLinked, true);
+    assert.equal(await challengeForProduct(productId + 1, "Совсем другой товар"), null);
+  } finally {
+    globalThis.fetch = realFetch;
+    await prisma.challenge.update({ where: { id: ch.id }, data: { tributeProductId: null, tributeLink: null } });
+    await prisma.$disconnect();
+  }
+});
