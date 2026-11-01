@@ -1,4 +1,5 @@
 import {
+  ArrowBendUpLeftIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
   BarbellIcon,
@@ -14,6 +15,7 @@ import {
   FireIcon,
   FlagCheckeredIcon,
   HourglassIcon,
+  ImageIcon,
   HouseIcon,
   LeafIcon,
   LifebuoyIcon,
@@ -22,14 +24,17 @@ import {
   LockSimpleIcon,
   MedalIcon,
   NotePencilIcon,
+  PaperPlaneRightIcon,
   RankingIcon,
   SealCheckIcon,
   ShareNetworkIcon,
   SparkleIcon,
   StarIcon,
   SunIcon,
+  TrashIcon,
   TrophyIcon,
   UserIcon,
+  UsersThreeIcon,
   XIcon,
   type IconWeight,
 } from "@phosphor-icons/react";
@@ -37,6 +42,11 @@ import { theme } from "./theme";
 
 const ICONS = {
   back: ArrowLeftIcon,
+  reply: ArrowBendUpLeftIcon,
+  image: ImageIcon,
+  send: PaperPlaneRightIcon,
+  trash: TrashIcon,
+  users: UsersThreeIcon,
   arrow: ArrowRightIcon,
   muscle: BarbellIcon,
   rules: BookOpenTextIcon,

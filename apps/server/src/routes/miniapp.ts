@@ -20,7 +20,20 @@ import {
   serializeReport,
   type EnrollmentFull,
 } from "../services/enrollments.js";
-import { bot } from "../bot/index.js";
+import { bot, sendTo } from "../bot/index.js";
+import { esc, openAppKeyboard } from "../bot/messages.js";
+import {
+  CHAT_TEXT_MAX,
+  chatInclude,
+  chatMembersCount,
+  chatSnippet,
+  chatSummary,
+  loadMessages,
+  markRead,
+  rateLimited,
+  serializeMessages,
+  shouldNotify,
+} from "../services/chat.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -301,5 +314,131 @@ export async function miniappRoutes(app: FastifyInstance) {
       caption: `Сертификат: «${e.stream.challenge.title}»${share}`,
     });
     return { ok: true, sent: true };
+  });
+
+  // ---------------- Чат участников челленджа ----------------
+  // Доступ только у тех, у кого есть оплаченное или пройденное участие (loadEnrollment не пускает CANCELLED)
+
+  async function chatContext(req: FastifyRequest<{ Params: { id: string } }>) {
+    const e = await loadEnrollment(req.tgUser!, Number(req.params.id));
+    if (!e.stream.challenge.chatEnabled) throw new HttpError(403, "Чат этого челленджа выключен");
+    return e;
+  }
+
+  app.get<{ Params: { id: string }; Querystring: { after?: string; before?: string; from?: string } }>(
+    "/enrollments/:id/chat",
+    async (req) => {
+      const e = await chatContext(req);
+      const challengeId = e.stream.challengeId;
+      const after = Number(req.query.after) || undefined;
+      const before = Number(req.query.before) || undefined;
+      const from = Number(req.query.from) || undefined;
+      const list = await loadMessages(challengeId, { after, before });
+      // при опросе сообщаем, какие уже показанные сообщения удалили
+      const deletedIds =
+        after && from
+          ? (
+              await prisma.chatMessage.findMany({
+                where: { challengeId, deleted: true, id: { gte: from, lte: after } },
+                select: { id: true },
+              })
+            ).map((m) => m.id)
+          : [];
+      const hasMore = !after && list.length > 0 && (await prisma.chatMessage.count({ where: { challengeId, id: { lt: list[0].id } } })) > 0;
+      return {
+        challengeTitle: e.stream.challenge.title,
+        messages: await serializeMessages(challengeId, list, req.tgUser!.id),
+        deletedIds,
+        hasMore,
+        members: after ? undefined : await chatMembersCount(challengeId),
+        banned: req.tgUser!.chatBanned,
+      };
+    },
+  );
+
+  app.get<{ Params: { id: string } }>("/enrollments/:id/chat/summary", async (req) => {
+    const e = await loadEnrollment(req.tgUser!, Number(req.params.id));
+    if (!e.stream.challenge.chatEnabled) return { enabled: false };
+    return { enabled: true, ...(await chatSummary(req.tgUser!.id, e.stream.challengeId)) };
+  });
+
+  app.post<{ Params: { id: string } }>("/enrollments/:id/chat/read", async (req) => {
+    const e = await chatContext(req);
+    const lastId = Number((req.body as any)?.lastId);
+    if (Number.isInteger(lastId) && lastId > 0) await markRead(req.tgUser!.id, e.stream.challengeId, lastId);
+    return { ok: true };
+  });
+
+  async function postMessage(
+    e: EnrollmentFull,
+    user: User,
+    input: { text: string; replyToId?: number | null; photoUrl?: string | null },
+  ) {
+    if (user.chatBanned) throw new HttpError(403, "Организатор ограничил вам отправку сообщений");
+    const text = input.text.trim().slice(0, CHAT_TEXT_MAX);
+    if (!text && !input.photoUrl) throw new HttpError(400, "Пустое сообщение");
+    if (rateLimited(user.id)) throw new HttpError(429, "Слишком часто. Подождите немного");
+    const challengeId = e.stream.challengeId;
+    let replyTo = null;
+    if (input.replyToId) {
+      replyTo = await prisma.chatMessage.findUnique({ where: { id: input.replyToId }, include: { user: true } });
+      if (!replyTo || replyTo.challengeId !== challengeId) replyTo = null;
+    }
+    const msg = await prisma.chatMessage.create({
+      data: { challengeId, userId: user.id, text, photoUrl: input.photoUrl ?? null, replyToId: replyTo?.id ?? null },
+      include: chatInclude,
+    });
+    await markRead(user.id, challengeId, msg.id);
+
+    // «Вам ответили» — бот присылает уведомление автору исходного сообщения
+    const target = replyTo?.user;
+    if (target && target.id !== user.id && !target.botBlocked && shouldNotify(target.id)) {
+      const targetEnrollment = await prisma.enrollment.findFirst({
+        where: { userId: target.id, stream: { challengeId }, status: { in: ["ACTIVE", "COMPLETED"] } },
+        orderBy: { startDate: "desc" },
+      });
+      if (targetEnrollment) {
+        const who = esc(user.displayName || user.firstName || "Участник");
+        const what = esc(chatSnippet(msg));
+        void sendTo(
+          target.telegramId,
+          `💬 <b>${who}</b> ответил(а) вам в чате «${esc(e.stream.challenge.title)}»:\n\n${what}`,
+          openAppKeyboard("ОТКРЫТЬ ЧАТ", { screen: "chat", enrollment: String(targetEnrollment.id) }),
+        ).catch(() => undefined);
+      }
+    }
+    const [out] = await serializeMessages(challengeId, [msg], user.id);
+    return { message: out };
+  }
+
+  app.post<{ Params: { id: string } }>("/enrollments/:id/chat", async (req) => {
+    const e = await chatContext(req);
+    const b = (req.body ?? {}) as { text?: unknown; replyToId?: unknown };
+    return postMessage(e, req.tgUser!, { text: String(b.text ?? ""), replyToId: Number(b.replyToId) || null });
+  });
+
+  /** Фото в чат; подпись и ответ приходят полями формы перед файлом */
+  app.post<{ Params: { id: string } }>("/enrollments/:id/chat/photo", async (req) => {
+    const e = await chatContext(req);
+    if (req.tgUser!.chatBanned) throw new HttpError(403, "Организатор ограничил вам отправку сообщений");
+    const file = await req.file();
+    if (!file) throw new HttpError(400, "Нет файла");
+    const ext = imageExt(file.mimetype);
+    if (!ext) throw new HttpError(400, "Нужна картинка JPG, PNG или WEBP");
+    const field = (name: string) => {
+      const f = (file.fields as Record<string, any>)[name];
+      return f && "value" in f ? String(f.value) : "";
+    };
+    const url = await saveUpload(await file.toBuffer(), ext, "chat");
+    return postMessage(e, req.tgUser!, { text: field("text"), replyToId: Number(field("replyToId")) || null, photoUrl: url });
+  });
+
+  /** Удалить своё сообщение */
+  app.post<{ Params: { id: string; msgId: string } }>("/enrollments/:id/chat/:msgId/delete", async (req) => {
+    const e = await chatContext(req);
+    const m = await prisma.chatMessage.findUnique({ where: { id: Number(req.params.msgId) } });
+    if (!m || m.challengeId !== e.stream.challengeId || m.userId !== req.tgUser!.id) throw new HttpError(404, "Сообщение не найдено");
+    await prisma.chatMessage.update({ where: { id: m.id }, data: { deleted: true } });
+    return { ok: true };
   });
 }
