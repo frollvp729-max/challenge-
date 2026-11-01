@@ -6,6 +6,8 @@ import { safeEqual, signAdminToken, verifyAdminToken } from "../lib/telegramAuth
 import { localDate } from "../lib/dates.js";
 import { challengeLeaderboard, currentDayOf, displayNameOf, grantAccess, recomputeEnrollment } from "../services/enrollments.js";
 import { enrollPaidUsers } from "../services/payments.js";
+import { sendTo } from "../bot/index.js";
+import { esc, openAppKeyboard, paidMessage } from "../bot/messages.js";
 import { imageExt, saveUpload } from "./miniapp.js";
 import { CHAT_TEXT_MAX, chatInclude, loadMessages, serializeMessages } from "../services/chat.js";
 
@@ -20,6 +22,25 @@ const INT_FIELDS = new Set([
   "pointsDone", "pointsProof", "pointsViolation", "streakSaveCost", "streakSavesAllowed", "sortOrder", "points",
 ]);
 const NULLABLE = new Set(["startDate", "coverUrl", "tributeLink", "tributeSubscriptionId", "tributeProductId", "chatLink", "imageUrl", "points"]);
+
+/**
+ * Человек по @username (только тот, кто уже открывал бота) или по Telegram ID
+ * (если такого ещё нет, создаём: доступ появится, когда он откроет бота).
+ */
+async function userByWho(raw: unknown) {
+  const who = String(raw ?? "").trim().replace(/^https?:\/\/t\.me\//, "").replace(/^@/, "");
+  if (!who) throw Object.assign(new Error("Укажите @username или Telegram ID"), { statusCode: 400 });
+  if (/^\d+$/.test(who)) {
+    if (who.length < 5 || who.length > 15) throw Object.assign(new Error(`Telegram ID ${who} не похож на настоящий: это число из 5–15 цифр`), { statusCode: 400 });
+    const tgId = BigInt(who);
+    return prisma.user.upsert({ where: { telegramId: tgId }, create: { telegramId: tgId }, update: {} });
+  }
+  const found = await prisma.user.findMany({ where: { username: { equals: who, mode: "insensitive" } } });
+  if (found.length !== 1) {
+    throw Object.assign(new Error(`Пользователь @${who} не найден. Пусть он сначала откроет бота и нажмёт «Старт», или укажите его Telegram ID`), { statusCode: 400 });
+  }
+  return found[0];
+}
 
 function pick(body: any, fields: readonly string[]) {
   const out: Record<string, unknown> = {};
@@ -241,12 +262,17 @@ export async function adminRoutes(app: FastifyInstance) {
       const sub = e.user.subscriptions.find((s) => s.tributeSubscriptionId === e.stream.challenge.tributeSubscriptionId);
       out.push({
         enrollmentId: e.id,
+        userId: e.userId,
         telegramId: String(e.user.telegramId),
         username: e.user.username,
         name: displayNameOf(e.user),
+        displayName: e.user.displayName,
+        seenBot: Boolean(e.user.firstName || e.user.username || e.user.onboarded),
         registeredAt: e.user.createdAt,
         goal: e.user.goal,
         challenge: e.stream.challenge.title,
+        challengeId: chId,
+        durationDays: e.stream.challenge.durationDays,
         streamStart: e.startDate,
         source: e.source,
         payment: sub
@@ -265,20 +291,96 @@ export async function adminRoutes(app: FastifyInstance) {
     return out;
   });
 
-  /** Ручная выдача доступа (подарок, тест, оплата мимо Tribute) */
+  /** Ручная выдача доступа без оплаты (подарок, тест, оплата мимо Tribute) */
   app.post("/participants", async (req) => {
-    const b = req.body as any;
-    const tgId = BigInt(String(b?.telegramId ?? "0"));
-    const user = await prisma.user.upsert({ where: { telegramId: tgId }, create: { telegramId: tgId }, update: {} });
-    if (!b.challengeId) throw Object.assign(new Error("Выбери челлендж"), { statusCode: 400 });
-    const res = await grantAccess(user.id, Number(b.challengeId), "admin");
-    return res.enrollment;
+    const b = (req.body ?? {}) as any;
+    const challengeId = Number(b.challengeId);
+    if (!challengeId) throw Object.assign(new Error("Выберите челлендж"), { statusCode: 400 });
+    const ch = await prisma.challenge.findUnique({ where: { id: challengeId } });
+    if (!ch) throw Object.assign(new Error("Челлендж не найден"), { statusCode: 404 });
+    const user = await userByWho(b.who ?? b.telegramId);
+    const res = await grantAccess(user.id, ch.id, "admin", new Date(), { startToday: Boolean(b.startToday) });
+    // бот может написать только тому, кто уже нажимал «Старт»
+    const seenBot = Boolean(user.firstName || user.username || user.onboarded);
+    let notified: boolean | null = null;
+    if (res.created && b.notify !== false && !seenBot) notified = false;
+    else if (res.created && b.notify !== false) {
+      const m = paidMessage(res.startDate, user.timezone);
+      const text = [`Тебе открыт доступ к челленджу «${esc(ch.title)}».`, ...m.text.split("\n").slice(2)].join("\n");
+      notified = await sendTo(user.telegramId, text, openAppKeyboard("ОТКРЫТЬ ЧЕЛЛЕНДЖ", { enrollment: String(res.enrollment.id) }));
+    }
+    return {
+      enrollmentId: res.enrollment.id,
+      created: res.created,
+      startDate: res.startDate,
+      name: displayNameOf(user),
+      telegramId: String(user.telegramId),
+      seenBot,
+      notified,
+    };
   });
 
+  /** Изменить участника: имя (во всех его челленджах), день 1, статус */
   app.put<{ Params: { id: string } }>("/participants/:id", async (req) => {
-    const status = String((req.body as any)?.status);
-    if (!["ACTIVE", "COMPLETED", "CANCELLED"].includes(status)) throw Object.assign(new Error("Неверный статус"), { statusCode: 400 });
-    return prisma.enrollment.update({ where: { id: Number(req.params.id) }, data: { status: status as any } });
+    const b = (req.body ?? {}) as any;
+    const id = Number(req.params.id);
+    const e = await prisma.enrollment.findUnique({ where: { id } });
+    if (!e) throw Object.assign(new Error("Участие не найдено"), { statusCode: 404 });
+    const data: Prisma.EnrollmentUpdateInput = {};
+    if (b.status !== undefined) {
+      const status = String(b.status);
+      if (!["ACTIVE", "COMPLETED", "CANCELLED"].includes(status)) throw Object.assign(new Error("Неверный статус"), { statusCode: 400 });
+      data.status = status as any;
+    }
+    const startChanged = b.startDate !== undefined && String(b.startDate) !== e.startDate;
+    if (startChanged) {
+      const d = String(b.startDate);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(d))) {
+        throw Object.assign(new Error("День 1 в формате ГГГГ-ММ-ДД"), { statusCode: 400 });
+      }
+      data.startDate = d;
+      data.finishedNotified = false;
+    }
+    if (b.name !== undefined) {
+      const name = String(b.name).trim().slice(0, 32);
+      await prisma.user.update({ where: { id: e.userId }, data: { displayName: name || null } });
+    }
+    try {
+      await prisma.enrollment.update({ where: { id }, data });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        throw Object.assign(new Error("У этого участника уже есть участие в этом челлендже с таким днём 1"), { statusCode: 400 });
+      }
+      throw err;
+    }
+    // серия, баллы и «завершил» зависят от дня 1
+    if (startChanged) await recomputeEnrollment(id);
+    return { ok: true };
+  });
+
+  /**
+   * Удалить участие вместе с отчётами и баллами. Записи об оплатах остаются в «Платежах».
+   * Если человек ни разу не открывал бота и больше нигде не участвует (например, Telegram ID введён с ошибкой),
+   * убираем и его самого.
+   */
+  app.post<{ Params: { id: string } }>("/participants/:id/delete", async (req) => {
+    const id = Number(req.params.id);
+    const e = await prisma.enrollment.findUnique({
+      where: { id },
+      include: { user: { include: { _count: { select: { enrollments: true, payments: true, subscriptions: true, chatMessages: true } } } } },
+    });
+    if (!e) throw Object.assign(new Error("Участие не найдено"), { statusCode: 404 });
+    await prisma.enrollment.delete({ where: { id } });
+    const u = e.user;
+    const c = u._count;
+    const empty = c.enrollments === 1 && !c.payments && !c.subscriptions && !c.chatMessages;
+    const neverOpenedBot = !u.onboarded && !u.firstName && !u.username && !u.isOrganizer;
+    let userRemoved = false;
+    if (empty && neverOpenedBot) {
+      await prisma.user.delete({ where: { id: u.id } });
+      userRemoved = true;
+    }
+    return { ok: true, userRemoved };
   });
 
   // ---------- Организаторы: бесплатный доступ ко всем челленджам ----------
@@ -295,19 +397,8 @@ export async function adminRoutes(app: FastifyInstance) {
 
   /** Назначить организатора по @username (он уже открывал бота) или по Telegram ID */
   app.post("/organizers", async (req) => {
-    const who = String((req.body as any)?.who ?? "").trim().replace(/^@/, "").replace(/^https?:\/\/t\.me\//, "");
-    if (!who) throw Object.assign(new Error("Укажите @username или Telegram ID"), { statusCode: 400 });
-    let user;
-    if (/^\d{4,}$/.test(who)) {
-      const tgId = BigInt(who);
-      user = await prisma.user.upsert({ where: { telegramId: tgId }, create: { telegramId: tgId, isOrganizer: true }, update: { isOrganizer: true } });
-    } else {
-      const found = await prisma.user.findMany({ where: { username: { equals: who, mode: "insensitive" } } });
-      if (found.length !== 1) {
-        throw Object.assign(new Error(`Пользователь @${who} не найден. Пусть он сначала откроет бота и нажмёт «Старт»`), { statusCode: 400 });
-      }
-      user = await prisma.user.update({ where: { id: found[0].id }, data: { isOrganizer: true } });
-    }
+    const found = await userByWho((req.body as any)?.who);
+    const user = await prisma.user.update({ where: { id: found.id }, data: { isOrganizer: true } });
     return serializeOrganizer(user);
   });
 

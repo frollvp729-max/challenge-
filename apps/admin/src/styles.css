@@ -70,3 +70,5 @@ legend { font-weight: 700; padding: 0 6px; }
 }
 .chat-list { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
 .rcard .badge { margin-left: 6px; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+button.danger { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, var(--line)); }
