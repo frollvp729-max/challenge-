@@ -4,6 +4,7 @@ import type { Screen } from "./App";
 import { Avatar, Icon, IconTile, REWARD_ICONS, type IconName, type Tone } from "./icons";
 import { alertMsg, compressImage, countdownParts, GOALS, haptic, humanDate, openTgLink, plural, tomorrowIso } from "./util";
 import { drawCertificate } from "./certificate";
+import { ChatCard } from "./chat";
 
 interface Props {
   state: State;
@@ -260,9 +261,11 @@ export function Home({ state, setState, go, me }: Props) {
         </>
       )}
 
+      <ChatCard state={state} go={go} />
+
       <div className="list">
         <ListRow icon="rules" label="Правила челленджа" onClick={() => go("rules")} />
-        {ch.chatLink && <ListRow icon="chat" tone="rank" label="Чат участников" onClick={() => openTgLink(ch.chatLink!)} />}
+        {ch.chatLink && <ListRow icon="users" tone="rank" label="Группа в Telegram" onClick={() => openTgLink(ch.chatLink!)} />}
       </div>
     </div>
   );
@@ -945,7 +948,7 @@ export function Catalog() {
 
 // ---------------- Финал и сертификат ----------------
 
-export function Final({ state, me }: Props) {
+export function Final({ state, me, go }: Props) {
   const ch = state.challenge;
   const s = state.score;
   const [cert, setCert] = useState<{ url: string; blob: Blob } | null>(null);
@@ -1008,6 +1011,7 @@ export function Final({ state, me }: Props) {
           <Icon name="share" size={20} /> Поделиться результатом
         </button>
       </div>
+      <ChatCard state={state} go={go} />
     </div>
   );
 }

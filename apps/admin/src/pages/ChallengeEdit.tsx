@@ -23,7 +23,7 @@ interface Challenge {
   participants: number;
 }
 
-type FieldDef = [key: string, label: string, kind?: "text" | "area" | "number" | "select" | "image" | "date", options?: Array<[string, string]>];
+type FieldDef = [key: string, label: string, kind?: "text" | "area" | "number" | "select" | "image" | "date" | "bool", options?: Array<[string, string]>];
 
 const SETTINGS: Array<[string, FieldDef[]]> = [
   [
@@ -38,7 +38,8 @@ const SETTINGS: Array<[string, FieldDef[]]> = [
       ["coverUrl", "Обложка", "image"],
       ["startDate", "Дата открытия (кто записался раньше, начнёт в этот день; позже — на следующий день после оплаты)", "date"],
       ["durationDays", "Длительность, дней", "number"],
-      ["chatLink", "Ссылка на чат участников"],
+      ["chatEnabled", "Чат участников в приложении (видят только оплатившие этот челлендж)", "bool"],
+      ["chatLink", "Ссылка на внешнюю группу Telegram (необязательно)"],
       ["sortOrder", "Порядок в каталоге", "number"],
     ],
   ],
@@ -100,6 +101,12 @@ function Field({ def, value, onChange }: { def: FieldDef; value: any; onChange: 
       </select>
     );
   else if (kind === "image") input = <ImageField value={value} onChange={onChange} />;
+  else if (kind === "bool")
+    return (
+      <label className="check" key={key}>
+        <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} /> {label}
+      </label>
+    );
   else if (kind === "date") input = <input type="date" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)} />;
   else input = <input type={kind === "number" ? "number" : "text"} value={value ?? ""} onChange={(e) => onChange(e.target.value)} />;
   return (

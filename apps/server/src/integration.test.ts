@@ -164,3 +164,90 @@ test("оплата до того, как вписали subscription_id → за
     await prisma.$disconnect();
   }
 });
+
+test("чат челленджа: пишут только участники, у каждого челленджа свой", { skip: !process.env.DATABASE_URL }, async () => {
+  const { buildApp } = await import("./app.js");
+  const { prisma } = await import("./lib/db.js");
+  const { grantAccess } = await import("./services/enrollments.js");
+  const app = await buildApp();
+  const login = await app.inject({ method: "POST", url: "/admin/api/login", payload: { password: "secret" } });
+  const auth = { authorization: `Bearer ${login.json().token}` };
+  const base = 920000000 + Math.floor(Math.random() * 1000000);
+  const ids = [base, base + 1, base + 2, base + 3];
+  const ch = await prisma.challenge.findUniqueOrThrow({ where: { slug: "no-sugar" } });
+  const other = await prisma.challenge.findFirstOrThrow({ where: { id: { not: ch.id } }, orderBy: { id: "asc" } });
+  const h = (tg: number) => ({ "x-dev-user": String(tg) });
+  try {
+    const [ua, ub, uc] = await Promise.all(
+      ids.slice(0, 3).map((tg, i) =>
+        prisma.user.create({ data: { telegramId: BigInt(tg), displayName: ["Аня", "Борис", "Вера"][i], onboarded: true, timezone: "UTC" } }),
+      ),
+    );
+    const ea = (await grantAccess(ua.id, ch.id, "admin")).enrollment.id;
+    const eb = (await grantAccess(ub.id, ch.id, "admin")).enrollment.id;
+    const ec = (await grantAccess(uc.id, other.id, "admin")).enrollment.id;
+    const chat = (e: number) => `/api/enrollments/${e}/chat`;
+
+    const sent = await app.inject({ method: "POST", url: chat(ea), headers: h(ids[0]), payload: { text: "  Всем привет!  " } });
+    assert.equal(sent.statusCode, 200, sent.body);
+    const msgA = sent.json().message;
+    assert.equal(msgA.text, "Всем привет!");
+    assert.equal(msgA.author.isMe, true);
+
+    // Борис из того же челленджа видит сообщение
+    const seenB = (await app.inject({ method: "GET", url: chat(eb), headers: h(ids[1]) })).json();
+    const fromA = seenB.messages.find((m: any) => m.id === msgA.id);
+    assert.equal(fromA.text, "Всем привет!");
+    assert.equal(fromA.author.isMe, false);
+    assert.equal(fromA.author.name, "Аня");
+    assert.equal(seenB.members >= 2, true);
+
+    // Вера из другого челленджа его не видит и не может зайти в чужой чат
+    const seenC = (await app.inject({ method: "GET", url: chat(ec), headers: h(ids[2]) })).json();
+    assert.equal(seenC.messages.some((m: any) => m.id === msgA.id), false);
+    assert.equal((await app.inject({ method: "GET", url: chat(ea), headers: h(ids[2]) })).statusCode, 404);
+    // человек без оплаты тоже
+    assert.equal((await app.inject({ method: "GET", url: chat(ea), headers: h(ids[3]) })).statusCode, 404);
+    assert.equal((await app.inject({ method: "POST", url: chat(ea), headers: h(ids[3]), payload: { text: "спам" } })).statusCode, 404);
+
+    // ответ Бориса: у Ани одно непрочитанное
+    const reply = await app.inject({ method: "POST", url: chat(eb), headers: h(ids[1]), payload: { text: "Привет, Аня", replyToId: msgA.id } });
+    const msgB = reply.json().message;
+    assert.equal(msgB.replyTo.name, "Аня");
+    let sum = (await app.inject({ method: "GET", url: `${chat(ea)}/summary`, headers: h(ids[0]) })).json();
+    assert.equal(sum.unread, 1);
+    assert.equal(sum.last.text, "Привет, Аня");
+    await app.inject({ method: "POST", url: `${chat(ea)}/read`, headers: h(ids[0]), payload: { lastId: msgB.id } });
+    sum = (await app.inject({ method: "GET", url: `${chat(ea)}/summary`, headers: h(ids[0]) })).json();
+    assert.equal(sum.unread, 0);
+
+    // чужое сообщение удалить нельзя, своё можно; опрос сообщает об удалении
+    assert.equal((await app.inject({ method: "POST", url: `${chat(eb)}/${msgA.id}/delete`, headers: h(ids[1]) })).statusCode, 404);
+    assert.equal((await app.inject({ method: "POST", url: `${chat(ea)}/${msgA.id}/delete`, headers: h(ids[0]) })).statusCode, 200);
+    const poll = (await app.inject({ method: "GET", url: `${chat(eb)}?after=${msgB.id}&from=${msgA.id}`, headers: h(ids[1]) })).json();
+    assert.deepEqual(poll.deletedIds, [msgA.id]);
+    assert.deepEqual(poll.messages, []);
+
+    // админ: видит чат, пишет от организатора, ограничивает Бориса
+    const adminList = (await app.inject({ method: "GET", url: `/admin/api/chat?challengeId=${ch.id}`, headers: auth })).json();
+    assert.equal(adminList.find((m: any) => m.id === msgA.id).text, "Всем привет!");
+    const org = await app.inject({ method: "POST", url: "/admin/api/chat", headers: auth, payload: { challengeId: ch.id, text: "Старт завтра!" } });
+    assert.equal(org.json().author.organizer, true);
+    await app.inject({ method: "POST", url: `/admin/api/chat/users/${ub.id}/ban`, headers: auth, payload: { banned: true } });
+    assert.equal((await app.inject({ method: "POST", url: chat(eb), headers: h(ids[1]), payload: { text: "ещё" } })).statusCode, 403);
+
+    // отменённое участие (подписка закончилась) — чат закрыт
+    await prisma.enrollment.update({ where: { id: eb }, data: { status: "CANCELLED" } });
+    assert.equal((await app.inject({ method: "GET", url: chat(eb), headers: h(ids[1]) })).statusCode, 404);
+
+    // чат можно выключить в админке
+    await app.inject({ method: "PUT", url: `/admin/api/challenges/${ch.id}`, headers: auth, payload: { chatEnabled: false } });
+    assert.equal((await app.inject({ method: "GET", url: chat(ea), headers: h(ids[0]) })).statusCode, 403);
+  } finally {
+    await prisma.challenge.update({ where: { id: ch.id }, data: { chatEnabled: true } });
+    await prisma.chatMessage.deleteMany({ where: { challengeId: ch.id, userId: null, text: "Старт завтра!" } });
+    await prisma.user.deleteMany({ where: { telegramId: { in: ids.map(BigInt) } } });
+    await app.close();
+    await prisma.$disconnect();
+  }
+});

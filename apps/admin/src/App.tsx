@@ -8,6 +8,7 @@ import { Participants } from "./pages/Participants";
 import { Reports } from "./pages/Reports";
 import { Broadcasts } from "./pages/Broadcasts";
 import { Payments } from "./pages/Payments";
+import { Chats } from "./pages/Chats";
 
 function useHash() {
   const [hash, setHash] = useState(location.hash || "#/");
@@ -24,6 +25,7 @@ const NAV: Array<[string, string]> = [
   ["/challenges", "Челленджи"],
   ["/participants", "Участники"],
   ["/reports", "Результаты"],
+  ["/chats", "Чаты"],
   ["/broadcasts", "Рассылка"],
   ["/payments", "Платежи"],
 ];
@@ -40,6 +42,7 @@ export function App() {
   else if (route === "/challenges") page = <Challenges />;
   else if (route === "/participants") page = <Participants initialChallenge={params.get("challenge") ?? ""} />;
   else if (route === "/reports") page = <Reports />;
+  else if (route === "/chats") page = <Chats />;
   else if (route === "/broadcasts") page = <Broadcasts />;
   else if (route === "/payments") page = <Payments />;
   else page = <Dashboard />;

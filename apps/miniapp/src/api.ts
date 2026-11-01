@@ -30,8 +30,10 @@ export const api = {
       headers: { ...headers(), "content-type": "application/json" },
       body: JSON.stringify(body ?? {}),
     }).then((r) => handle<T>(r)),
-  upload: <T,>(path: string, file: Blob, name: string) => {
+  upload: <T,>(path: string, file: Blob, name: string, fields: Record<string, string> = {}) => {
     const fd = new FormData();
+    // поля идут перед файлом, чтобы сервер прочитал их вместе с файлом
+    for (const [k, v] of Object.entries(fields)) fd.append(k, v);
     fd.append("file", file, name);
     return fetch(`/api${path}`, { method: "POST", headers: headers(), body: fd }).then((r) => handle<T>(r));
   },
@@ -102,6 +104,7 @@ export interface State {
     coverUrl: string | null;
     durationDays: number;
     chatLink: string | null;
+    chatEnabled: boolean;
     pointsDone: number;
     pointsProof: number;
     pointsViolation: number;
@@ -166,4 +169,38 @@ export interface CatalogItem {
   paymentMode: string;
   tributeLink: string | null;
   nextStart: string | null;
+}
+
+export interface ChatMessage {
+  id: number;
+  text: string;
+  photoUrl: string | null;
+  deleted: boolean;
+  createdAt: string;
+  author: {
+    userId: number | null;
+    name: string;
+    photoUrl: string | null;
+    organizer: boolean;
+    isMe: boolean;
+    /** «день 5», «скоро старт», «прошёл 30 дней» */
+    badge: string | null;
+  };
+  replyTo: { id: number; name: string; text: string } | null;
+}
+
+export interface ChatPage {
+  challengeTitle: string;
+  messages: ChatMessage[];
+  deletedIds: number[];
+  hasMore: boolean;
+  members?: number;
+  banned: boolean;
+}
+
+export interface ChatSummary {
+  enabled: boolean;
+  unread?: number;
+  members?: number;
+  last?: { name: string; text: string; createdAt: string } | null;
 }

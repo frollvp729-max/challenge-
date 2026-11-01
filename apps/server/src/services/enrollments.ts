@@ -242,6 +242,7 @@ export async function enrollmentState(e: EnrollmentFull, now = new Date()) {
       coverUrl: ch.coverUrl,
       durationDays: ch.durationDays,
       chatLink: ch.chatLink,
+      chatEnabled: ch.chatEnabled,
       pointsDone: ch.pointsDone,
       pointsProof: ch.pointsProof,
       pointsViolation: ch.pointsViolation,

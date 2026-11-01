@@ -9,8 +9,8 @@ datasource db {
 
 /// Участник (пользователь Telegram)
 model User {
-  id          Int       @id @default(autoincrement())
-  telegramId  BigInt    @unique
+  id          Int      @id @default(autoincrement())
+  telegramId  BigInt   @unique
   username    String?
   firstName   String?
   lastName    String?
@@ -23,16 +23,20 @@ model User {
   goal        String?
   goalOther   String?
   /// IANA-таймзона, приходит из Mini App
-  timezone    String    @default("Europe/Moscow")
+  timezone    String   @default("Europe/Moscow")
   /// Пользователь заблокировал бота
-  botBlocked  Boolean   @default(false)
-  onboarded   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  botBlocked  Boolean  @default(false)
+  onboarded   Boolean  @default(false)
+  /// Админ запретил писать в чаты
+  chatBanned  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   enrollments   Enrollment[]
   payments      Payment[]
   subscriptions Subscription[]
+  chatMessages  ChatMessage[]
+  chatReads     ChatRead[]
 }
 
 enum ChallengeStatus {
@@ -53,74 +57,78 @@ enum PaymentMode {
 
 /// Челлендж — шаблон программы (30 дней заданий, правила, цена)
 model Challenge {
-  id           Int             @id @default(autoincrement())
-  slug         String          @unique
-  title        String
+  id                    Int             @id @default(autoincrement())
+  slug                  String          @unique
+  title                 String
   /// Короткое описание в одну строку
-  tagline      String          @default("")
+  tagline               String          @default("")
   /// Текст приветствия в боте перед кнопкой «Участвовать»
-  intro        String          @default("")
+  intro                 String          @default("")
   /// Правила (markdown-подобный текст)
-  rules        String          @default("")
-  coverUrl     String?
-  status       ChallengeStatus @default(DRAFT)
-  durationDays Int             @default(30)
+  rules                 String          @default("")
+  coverUrl              String?
+  status                ChallengeStatus @default(DRAFT)
+  durationDays          Int             @default(30)
   /// Дата открытия (YYYY-MM-DD): кто записался раньше, начинает в этот день.
   /// Позже каждый начинает свои 30 дней на следующий день после оплаты.
-  startDate    String?
+  startDate             String?
   /// Цена в рублях (для отображения; списывает Tribute)
-  priceRub     Int             @default(490)
-  paymentMode  PaymentMode     @default(SUBSCRIPTION)
+  priceRub              Int             @default(490)
+  paymentMode           PaymentMode     @default(SUBSCRIPTION)
   /// Ссылка на оплату в Tribute (t.me/tribute/app?startapp=...)
-  tributeLink  String?
+  tributeLink           String?
   /// subscription_id подписки Tribute (для SUBSCRIPTION)
-  tributeSubscriptionId Int?   @unique
+  tributeSubscriptionId Int?            @unique
   /// product_id цифрового товара Tribute (для ONE_TIME)
-  tributeProductId      Int?   @unique
-  /// Ссылка на чат участников
-  chatLink     String?
+  tributeProductId      Int?            @unique
+  /// Ссылка на внешнюю группу Telegram (необязательно)
+  chatLink              String?
+  /// Встроенный чат участников в Mini App
+  chatEnabled           Boolean         @default(true)
   /// Час утреннего сообщения и вечернего напоминания (по времени участника)
-  morningHour  Int             @default(8)
-  eveningHour  Int             @default(22)
+  morningHour           Int             @default(8)
+  eveningHour           Int             @default(22)
   /// Очки
-  pointsDone      Int @default(10)
-  pointsProof     Int @default(5)
-  pointsViolation Int @default(-10)
-  streakSaveCost  Int @default(50)
+  pointsDone            Int             @default(10)
+  pointsProof           Int             @default(5)
+  pointsViolation       Int             @default(-10)
+  streakSaveCost        Int             @default(50)
   /// Сколько раз за челлендж можно «спасти серию»
-  streakSavesAllowed Int @default(1)
-  sortOrder    Int             @default(0)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  streakSavesAllowed    Int             @default(1)
+  sortOrder             Int             @default(0)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
 
-  days    ChallengeDay[]
-  streams Stream[]
+  days         ChallengeDay[]
+  streams      Stream[]
+  chatMessages ChatMessage[]
+  chatReads    ChatRead[]
 }
 
 /// Задание одного дня челленджа
 model ChallengeDay {
-  id          Int       @id @default(autoincrement())
-  challengeId Int
-  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  dayNumber   Int
-  title       String
+  id            Int       @id @default(autoincrement())
+  challengeId   Int
+  challenge     Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  dayNumber     Int
+  title         String
   /// Описание / мотивация
-  description String    @default("")
+  description   String    @default("")
   /// Сама задача на день
-  task        String    @default("")
+  task          String    @default("")
   /// Что считается нарушением, подсказки
-  hint        String    @default("")
-  imageUrl    String?
+  hint          String    @default("")
+  imageUrl      String?
   /// Переопределение очков за выполнение (null = из челленджа)
-  points      Int?
+  points        Int?
   /// none | photo | text | photo_or_text
-  proofType   String    @default("photo_or_text")
+  proofType     String    @default("photo_or_text")
   /// Вопрос для текстового отчёта
-  proofPrompt String    @default("Что сегодня было самым сложным?")
+  proofPrompt   String    @default("Что сегодня было самым сложным?")
   /// Обязательно ли доказательство
-  proofRequired Boolean @default(false)
+  proofRequired Boolean   @default(false)
   /// Чек-лист пунктов (для челленджей вроде «Не сливаюсь»)
-  checklist   String[]  @default([])
+  checklist     String[]  @default([])
 
   @@unique([challengeId, dayNumber])
 }
@@ -134,15 +142,15 @@ enum StreamStatus {
 /// Поток — служебная группа участий челленджа. Вход бессрочный: у каждого участия
 /// свой день старта (Enrollment.startDate), поток только объединяет участия.
 model Stream {
-  id          Int          @id @default(autoincrement())
-  challengeId Int
-  challenge   Challenge    @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  title       String       @default("")
+  id             Int       @id @default(autoincrement())
+  challengeId    Int
+  challenge      Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  title          String    @default("")
   /// Дата старта (день 1) в формате YYYY-MM-DD, по времени участника
-  startDate   String
+  startDate      String
   /// Открыта ли запись
   enrollmentOpen Boolean   @default(true)
-  createdAt   DateTime     @default(now())
+  createdAt      DateTime  @default(now())
 
   enrollments Enrollment[]
 
@@ -160,32 +168,32 @@ enum EnrollmentStatus {
 
 /// Участие пользователя: один круг из durationDays дней со своей датой старта
 model Enrollment {
-  id         Int              @id @default(autoincrement())
-  userId     Int
-  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  streamId   Int
-  stream     Stream           @relation(fields: [streamId], references: [id], onDelete: Cascade)
-  status     EnrollmentStatus @default(ACTIVE)
+  id               Int              @id @default(autoincrement())
+  userId           Int
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  streamId         Int
+  stream           Stream           @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  status           EnrollmentStatus @default(ACTIVE)
   /// Личный день 1 участника (YYYY-MM-DD, по его времени)
-  startDate  String
+  startDate        String
   /// Откуда доступ: tribute_subscription | tribute_product | free | admin
-  source     String           @default("admin")
+  source           String           @default("admin")
   /// Денормализованные показатели (пересчитываются в recomputeEnrollment)
-  points        Int @default(0)
-  currentStreak Int @default(0)
-  bestStreak    Int @default(0)
-  doneCount     Int @default(0)
-  violatedCount Int @default(0)
-  missedCount   Int @default(0)
-  streakSavesUsed Int @default(0)
+  points           Int              @default(0)
+  currentStreak    Int              @default(0)
+  bestStreak       Int              @default(0)
+  doneCount        Int              @default(0)
+  violatedCount    Int              @default(0)
+  missedCount      Int              @default(0)
+  streakSavesUsed  Int              @default(0)
   /// Дни (номера), для которых серия была спасена
-  savedDays  Int[]            @default([])
+  savedDays        Int[]            @default([])
   /// Служебное: последние даты отправки уведомлений (YYYY-MM-DD)
-  lastMorningDate String?
-  lastEveningDate String?
-  finishedNotified Boolean    @default(false)
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
+  lastMorningDate  String?
+  lastEveningDate  String?
+  finishedNotified Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   reports Report[]
 
@@ -200,36 +208,36 @@ enum ReportStatus {
 
 /// Отчёт за день
 model Report {
-  id           Int          @id @default(autoincrement())
-  enrollmentId Int
-  enrollment   Enrollment   @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
-  dayNumber    Int
-  status       ReportStatus
-  proofPhoto   String?
-  proofText    String?
-  checklistDone String[]    @default([])
+  id            Int          @id @default(autoincrement())
+  enrollmentId  Int
+  enrollment    Enrollment   @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  dayNumber     Int
+  status        ReportStatus
+  proofPhoto    String?
+  proofText     String?
+  checklistDone String[]     @default([])
   /// Модерация: админ может отклонить доказательство
-  proofRejected Boolean     @default(false)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  proofRejected Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@unique([enrollmentId, dayNumber])
 }
 
 /// Подписка Tribute (ежемесячное автосписание)
 model Subscription {
-  id                    Int       @id @default(autoincrement())
+  id                    Int      @id @default(autoincrement())
   userId                Int
-  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   tributeSubscriptionId Int
   periodId              Int?
   period                String?
   /// active | cancelled
-  status                String    @default("active")
+  status                String   @default("active")
   expiresAt             DateTime
   cancelReason          String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@unique([userId, tributeSubscriptionId])
 }
@@ -252,17 +260,48 @@ model Payment {
 
 /// Рассылка из админки
 model Broadcast {
-  id          Int      @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   text        String
   /// all | challenge | stream
-  audience    String   @default("all")
+  audience    String    @default("all")
   challengeId Int?
   streamId    Int?
   buttonText  String?
   /// pending | sending | done
-  status      String   @default("pending")
-  sentCount   Int      @default(0)
-  failedCount Int      @default(0)
-  createdAt   DateTime @default(now())
+  status      String    @default("pending")
+  sentCount   Int       @default(0)
+  failedCount Int       @default(0)
+  createdAt   DateTime  @default(now())
   finishedAt  DateTime?
+}
+
+/// Сообщение в чате участников челленджа
+model ChatMessage {
+  id          Int           @id @default(autoincrement())
+  challengeId Int
+  challenge   Challenge     @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  /// null — сообщение от организатора из админки
+  userId      Int?
+  user        User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  text        String        @default("")
+  photoUrl    String?
+  replyToId   Int?
+  replyTo     ChatMessage?  @relation("ChatReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     ChatMessage[] @relation("ChatReply")
+  /// Удалено автором или админом (текст скрывается)
+  deleted     Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+
+  @@index([challengeId, id])
+}
+
+/// До какого сообщения пользователь прочитал чат челленджа
+model ChatRead {
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challengeId Int
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  lastReadId  Int       @default(0)
+
+  @@id([userId, challengeId])
 }

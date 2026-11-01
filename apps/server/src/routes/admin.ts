@@ -7,11 +7,12 @@ import { localDate } from "../lib/dates.js";
 import { challengeLeaderboard, currentDayOf, displayNameOf, grantAccess, recomputeEnrollment } from "../services/enrollments.js";
 import { enrollPaidUsers } from "../services/payments.js";
 import { imageExt, saveUpload } from "./miniapp.js";
+import { CHAT_TEXT_MAX, chatInclude, loadMessages, serializeMessages } from "../services/chat.js";
 
 const CHALLENGE_FIELDS = [
   "slug", "title", "tagline", "intro", "rules", "coverUrl", "status", "durationDays", "priceRub", "paymentMode",
   "tributeLink", "tributeSubscriptionId", "tributeProductId", "chatLink", "morningHour", "eveningHour", "startDate",
-  "pointsDone", "pointsProof", "pointsViolation", "streakSaveCost", "streakSavesAllowed", "sortOrder",
+  "pointsDone", "pointsProof", "pointsViolation", "streakSaveCost", "streakSavesAllowed", "sortOrder", "chatEnabled",
 ] as const;
 const DAY_FIELDS = ["title", "description", "task", "hint", "imageUrl", "points", "proofType", "proofPrompt", "proofRequired", "checklist"] as const;
 const INT_FIELDS = new Set([
@@ -31,7 +32,7 @@ function pick(body: any, fields: readonly string[]) {
       if (!Number.isFinite(v)) throw Object.assign(new Error(`Поле ${f} должно быть числом`), { statusCode: 400 });
       v = Math.trunc(v as number);
     } else if (f === "checklist") v = (Array.isArray(v) ? v : String(v).split("\n")).map((x: unknown) => String(x).trim()).filter(Boolean);
-    else if (f === "proofRequired") v = Boolean(v);
+    else if (f === "proofRequired" || f === "chatEnabled") v = Boolean(v);
     if (f === "startDate" && v !== null && !/^\d{4}-\d{2}-\d{2}$/.test(String(v))) {
       throw Object.assign(new Error("Дата открытия в формате ГГГГ-ММ-ДД"), { statusCode: 400 });
     }
@@ -268,6 +269,41 @@ export async function adminRoutes(app: FastifyInstance) {
     const status = String((req.body as any)?.status);
     if (!["ACTIVE", "COMPLETED", "CANCELLED"].includes(status)) throw Object.assign(new Error("Неверный статус"), { statusCode: 400 });
     return prisma.enrollment.update({ where: { id: Number(req.params.id) }, data: { status: status as any } });
+  });
+
+  // ---------- Чаты участников ----------
+  app.get<{ Querystring: { challengeId?: string; before?: string } }>("/chat", async (req) => {
+    const challengeId = Number(req.query.challengeId);
+    if (!challengeId) throw Object.assign(new Error("Выбери челлендж"), { statusCode: 400 });
+    const list = await loadMessages(challengeId, { before: Number(req.query.before) || undefined });
+    const messages = await serializeMessages(challengeId, list, null);
+    // админ видит и удалённый текст, чтобы понимать, что убрали
+    const raw = new Map(list.map((m) => [m.id, m]));
+    return messages.map((m) => ({ ...m, text: raw.get(m.id)!.text, photoUrl: raw.get(m.id)!.photoUrl }));
+  });
+
+  /** Сообщение от организатора */
+  app.post("/chat", async (req) => {
+    const b = (req.body ?? {}) as { challengeId?: unknown; text?: unknown; replyToId?: unknown };
+    const challengeId = Number(b.challengeId);
+    const text = String(b.text ?? "").trim().slice(0, CHAT_TEXT_MAX);
+    if (!challengeId || !text) throw Object.assign(new Error("Выбери челлендж и напиши текст"), { statusCode: 400 });
+    const replyToId = Number(b.replyToId) || null;
+    const msg = await prisma.chatMessage.create({ data: { challengeId, userId: null, text, replyToId }, include: chatInclude });
+    return (await serializeMessages(challengeId, [msg], null))[0];
+  });
+
+  app.post<{ Params: { id: string } }>("/chat/:id/delete", async (req) => {
+    const deleted = (req.body as any)?.deleted !== false;
+    await prisma.chatMessage.update({ where: { id: Number(req.params.id) }, data: { deleted } });
+    return { ok: true };
+  });
+
+  /** Запретить или разрешить человеку писать во все чаты */
+  app.post<{ Params: { userId: string } }>("/chat/users/:userId/ban", async (req) => {
+    const banned = (req.body as any)?.banned !== false;
+    await prisma.user.update({ where: { id: Number(req.params.userId) }, data: { chatBanned: banned } });
+    return { ok: true, banned };
   });
 
   // ---------- Результаты (отчёты) ----------

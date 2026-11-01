@@ -3,8 +3,9 @@ import { api, type Me, type State } from "./api";
 import { Icon, type IconName } from "./icons";
 import { Catalog, Final, Home, Leaderboard, Onboarding, Profile, Progress, Rewards, Rules, Today } from "./screens";
 import { theme } from "./theme";
+import { Chat } from "./chat";
 
-export type Screen = "home" | "today" | "progress" | "leaderboard" | "rewards" | "rules" | "profile" | "final";
+export type Screen = "home" | "today" | "progress" | "leaderboard" | "rewards" | "rules" | "profile" | "final" | "chat";
 
 const TABS: Array<{ id: Screen; label: string; icon: IconName }> = [
   { id: "home", label: "Главная", icon: "home" },
@@ -31,7 +32,10 @@ function TabBar({ screen, go }: { screen: Screen; go: (s: Screen) => void }) {
   );
 }
 
-const initialScreen = (new URLSearchParams(location.search).get("screen") as Screen | null) ?? "home";
+const query = new URLSearchParams(location.search);
+const initialScreen = (query.get("screen") as Screen | null) ?? "home";
+/** Ссылка из уведомления бота может указать, какое участие открыть (например, чат другого челленджа) */
+const initialEnrollment = Number(query.get("enrollment")) || null;
 
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -45,7 +49,8 @@ export function App() {
       await api.post("/timezone", { timezone: tz }).catch(() => undefined);
       const m = await api.get<Me>("/me");
       setMe(m);
-      if (m.primaryEnrollmentId) setState(await api.get<State>(`/enrollments/${m.primaryEnrollmentId}`));
+      const wanted = m.enrollments.some((e) => e.id === initialEnrollment) ? initialEnrollment : m.primaryEnrollmentId;
+      if (wanted) setState(await api.get<State>(`/enrollments/${wanted}`));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -94,6 +99,8 @@ export function App() {
         return <Profile {...props} onSaved={(u) => setMe({ ...me, user: u })} />;
       case "final":
         return <Final {...props} />;
+      case "chat":
+        return <Chat state={state} />;
       default:
         return <Home {...props} />;
     }
