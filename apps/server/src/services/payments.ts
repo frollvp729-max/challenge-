@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/db.js";
+import { fetchTributeProduct, tributeProductCode } from "../lib/tribute.js";
 import type { TributeDigitalProductPayload, TributeEvent, TributeSubscriptionPayload } from "../lib/tribute.js";
+import { config } from "../config.js";
 import { grantAccess } from "./enrollments.js";
 import { sendTo } from "../bot/index.js";
 import { esc, openAppKeyboard, paidMessage } from "../bot/messages.js";
@@ -123,7 +125,7 @@ async function onSubscriptionCancelled(p: TributeSubscriptionPayload, raw: Tribu
 async function onDigitalProduct(p: TributeDigitalProductPayload, raw: TributeEvent): Promise<HandleResult> {
   if (!p.telegram_user_id) return { ok: false, reason: "no telegram_user_id" };
   const user = await upsertUser(p.telegram_user_id, p.telegram_username);
-  const challenge = await prisma.challenge.findUnique({ where: { tributeProductId: p.product_id } });
+  const challenge = await challengeForProduct(p.product_id, p.product_name);
   const fresh = await logPayment({
     userId: user.id,
     event: "new_digital_product",
@@ -144,7 +146,63 @@ async function onDigitalProduct(p: TributeDigitalProductPayload, raw: TributeEve
   const res = await grantAccess(user.id, challenge.id, "tribute_product");
   const m = paidMessage(res.startDate, user.timezone);
   await sendTo(user.telegramId, m.text, m.keyboard);
+  // Товар только что привязали сами: записать тех, кто купил его раньше
+  if (challenge.autoLinked) await enrollPaidUsers(challenge.id);
   return { ok: true, action: res.created ? "enrolled" : "already_enrolled" };
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/ё/g, "е").replace(/[^a-zа-я0-9]+/g, " ").trim();
+
+/**
+ * Челлендж по товару Tribute. Если product_id в админке не вписан, ищем сами:
+ * по ссылке на оплату (код товара из API Tribute), а без API — по названию товара.
+ * Найденный product_id сохраняем в челлендже, чтобы дальше искать сразу.
+ */
+export async function challengeForProduct(productId: number, productName?: string) {
+  const known = await prisma.challenge.findUnique({ where: { tributeProductId: productId } });
+  if (known) return { ...known, autoLinked: false };
+  const candidates = await prisma.challenge.findMany({ where: { tributeProductId: null } });
+  let found: (typeof candidates)[number] | undefined;
+
+  const product = await fetchTributeProduct(productId, config.tributeApiKey);
+  const codes = [tributeProductCode(product?.link), tributeProductCode(product?.webLink)].filter(Boolean);
+  if (codes.length) found = candidates.find((c) => codes.includes(tributeProductCode(c.tributeLink)));
+
+  if (!found) {
+    const name = norm(product?.name ?? productName ?? "");
+    const byName = name
+      ? candidates.filter((c) => c.tributeLink && norm(c.title) && (name.includes(norm(c.title)) || norm(c.title).includes(name)))
+      : [];
+    if (byName.length === 1) found = byName[0];
+  }
+  if (!found) return null;
+
+  try {
+    const updated = await prisma.challenge.update({ where: { id: found.id }, data: { tributeProductId: productId } });
+    console.log(`Tribute: товар ${productId} привязан к челленджу «${found.title}»`);
+    return { ...updated, autoLinked: true };
+  } catch (err) {
+    // параллельный вебхук уже привязал
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const again = await prisma.challenge.findUnique({ where: { tributeProductId: productId } });
+      return again ? { ...again, autoLinked: false } : null;
+    }
+    throw err;
+  }
+}
+
+/** Разобрать покупки товаров, которые пришли, когда товар ещё не был привязан к челленджу */
+export async function resolveUnmappedProducts() {
+  const rows = await prisma.payment.findMany({ where: { event: "new_digital_product", challengeId: null } });
+  const seen = new Set<number>();
+  for (const r of rows) {
+    const payload = (r.raw as any)?.payload;
+    const productId = Number(payload?.product_id);
+    if (!productId || seen.has(productId)) continue;
+    seen.add(productId);
+    const ch = await challengeForProduct(productId, payload?.product_name);
+    if (ch) await enrollPaidUsers(ch.id);
+  }
 }
 
 /** Привязать к челленджу платежи, пришедшие до того, как в нём указали subscription_id / product_id */

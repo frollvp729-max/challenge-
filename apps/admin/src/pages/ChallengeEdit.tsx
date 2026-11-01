@@ -50,7 +50,7 @@ const SETTINGS: Array<[string, FieldDef[]]> = [
       ["paymentMode", "Тип оплаты", "select", [["SUBSCRIPTION", "Подписка с автосписанием"], ["ONE_TIME", "Разовая покупка (цифровой товар)"], ["FREE", "Бесплатно"]]],
       ["tributeLink", "Ссылка на оплату в Tribute"],
       ["tributeSubscriptionId", "subscription_id подписки Tribute", "number"],
-      ["tributeProductId", "product_id цифрового товара Tribute", "number"],
+      ["tributeProductId", "product_id цифрового товара Tribute (можно оставить пустым: заполнится сам по ссылке на оплату при первой покупке)", "number"],
     ],
   ],
   [
