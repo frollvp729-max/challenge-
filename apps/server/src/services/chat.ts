@@ -1,6 +1,6 @@
 import type { ChatMessage, User } from "@prisma/client";
 import { prisma } from "../lib/db.js";
-import { currentDayOf, displayNameOf } from "./enrollments.js";
+import { activeChallengeCounts, currentDayOf, displayNameOf } from "./enrollments.js";
 
 /** Кто считается участником чата: оплаченное или пройденное участие в челлендже */
 export const CHAT_MEMBER_STATUSES = ["ACTIVE", "COMPLETED"] as const;
@@ -44,7 +44,7 @@ async function authorDays(challengeId: number, userIds: number[]): Promise<Map<n
 
 export async function serializeMessages(challengeId: number, list: MessageWithRelations[], viewerId: number | null) {
   const ids = [...new Set(list.map((m) => m.userId).filter((x): x is number => x !== null))];
-  const days = await authorDays(challengeId, ids);
+  const [days, counts] = await Promise.all([authorDays(challengeId, ids), activeChallengeCounts(ids)]);
   return list.map((m) => ({
     id: m.id,
     text: m.deleted ? "" : m.text,
@@ -58,6 +58,8 @@ export async function serializeMessages(challengeId: number, list: MessageWithRe
       organizer: m.userId === null,
       isMe: viewerId !== null && m.userId === viewerId,
       badge: m.userId === null ? null : m.user?.isOrganizer ? "организатор" : days.get(m.userId) ?? null,
+      /** В скольких челленджах автор участвует сейчас (без названий) */
+      challenges: m.userId === null ? 0 : counts.get(m.userId) ?? 1,
       banned: m.user?.chatBanned ?? false,
     },
     replyTo: m.replyTo ? { id: m.replyTo.id, name: authorName(m.replyTo.user), text: snippet(m.replyTo) } : null,

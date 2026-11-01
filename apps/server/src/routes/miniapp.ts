@@ -9,6 +9,7 @@ import { config } from "../config.js";
 import { validateInitData } from "../lib/telegramAuth.js";
 import { isValidTimezone } from "../lib/dates.js";
 import {
+  activeChallengeCounts,
   challengeLeaderboard,
   currentDayOf,
   grantAccess,
@@ -143,6 +144,7 @@ export async function miniappRoutes(app: FastifyInstance) {
         id: e.id,
         challengeId: e.stream.challengeId,
         challengeTitle: e.stream.challenge.title,
+        durationDays: e.stream.challenge.durationDays,
         startDate: e.startDate,
         status: e.status,
         points: e.points,
@@ -320,13 +322,16 @@ export async function miniappRoutes(app: FastifyInstance) {
     const me = board.find((b) => b.enrollmentId === e.id) ?? null;
     const same = await sameDayLeaderboard(e);
     const sameMe = same.rows.find((b) => b.enrollmentId === e.id) ?? null;
+    // сколько у каждого челленджей, без названий
+    const counts = await activeChallengeCounts([...board.slice(0, 100), ...same.rows.slice(0, 100)].map((r) => r.userId));
+    const challengesOf = (userId: number) => counts.get(userId) ?? 1;
     return {
-      top: board.slice(0, 100).map(({ userId: _u, ...r }) => ({ ...r, isMe: r.enrollmentId === e.id })),
+      top: board.slice(0, 100).map(({ userId, ...r }) => ({ ...r, challenges: challengesOf(userId), isMe: r.enrollmentId === e.id })),
       me,
       total: board.length,
       sameDay: {
         day: same.day,
-        top: same.rows.slice(0, 100).map(({ userId: _u, ...r }) => ({ ...r, isMe: r.enrollmentId === e.id })),
+        top: same.rows.slice(0, 100).map(({ userId, ...r }) => ({ ...r, challenges: challengesOf(userId), isMe: r.enrollmentId === e.id })),
         me: sameMe,
         total: same.rows.length,
       },

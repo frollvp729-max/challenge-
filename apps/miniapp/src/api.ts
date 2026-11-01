@@ -72,6 +72,7 @@ export interface MyEnrollment {
   id: number;
   challengeId: number;
   challengeTitle: string;
+  durationDays: number;
   startDate: string;
   status: string;
   points: number;
@@ -165,6 +166,8 @@ export interface LeaderRow {
   day: number;
   finished?: boolean;
   isMe?: boolean;
+  /** В скольких челленджах человек участвует сейчас (без названий) */
+  challenges?: number;
 }
 
 export interface LeaderboardData {
@@ -204,6 +207,8 @@ export interface ChatMessage {
     isMe: boolean;
     /** «день 5», «скоро старт», «прошёл 30 дней» */
     badge: string | null;
+    /** В скольких челленджах автор участвует сейчас (без названий) */
+    challenges?: number;
   };
   replyTo: { id: number; name: string; text: string } | null;
 }

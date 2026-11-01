@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { api, type Me, type State } from "./api";
 import { Icon, type IconName } from "./icons";
 import { Catalog, Final, Home, Leaderboard, Onboarding, Profile, Progress, Rewards, Rules, Today } from "./screens";
@@ -94,31 +94,36 @@ export function App() {
     setScreen(s);
     window.scrollTo(0, 0);
   };
-  /** Переключиться на другой свой челлендж */
-  const open = async (id: number) => {
+  /**
+   * Переключиться на другой свой челлендж.
+   * stay: остаться на том же экране (рейтинг → рейтинг другого челленджа), иначе на главную.
+   */
+  const open = async (id: number, stay = false) => {
     try {
       const [next, m] = await Promise.all([api.get<State>(`/enrollments/${id}`), api.get<Me>("/me")]);
       saveEnrollment(id);
       setMe(m);
       setState(next);
-      go("home");
+      if (stay) window.scrollTo(0, 0);
+      else go("home");
     } catch (e) {
       setError((e as Error).message);
     }
   };
+  const switchTo = (id: number) => void open(id, true);
 
   if (error) return <div className="center muted">{error}</div>;
   if (!me) return <div className="center muted">Загрузка…</div>;
   if (!me.user.onboarded) return <Onboarding user={me.user} onDone={(u) => setMe({ ...me, user: u })} />;
-  if (!state) return <Catalog onOpen={open} />;
+  if (!state) return <Catalog onOpen={(id) => void open(id)} />;
 
-  const props = { state, setState, go, me, open };
+  const props = { state, setState, go, me, open: switchTo };
   const effective = screen === "home" && state.phase === "finished" ? "final" : screen;
 
   const page = (() => {
     switch (effective) {
       case "catalog":
-        return <Catalog current={state.enrollmentId} onOpen={open} />;
+        return <Catalog current={state.enrollmentId} onOpen={(id) => void open(id)} />;
       case "today":
         return <Today {...props} />;
       case "progress":
@@ -134,7 +139,7 @@ export function App() {
       case "final":
         return <Final {...props} />;
       case "chat":
-        return <Chat state={state} />;
+        return <Chat state={state} me={me} open={switchTo} go={go} />;
       default:
         return <Home {...props} />;
     }
@@ -142,7 +147,8 @@ export function App() {
 
   return (
     <>
-      {page}
+      {/* другой челлендж: экран собирается заново, без остатков прошлого (лента чата, открытые окна) */}
+      <Fragment key={state.enrollmentId}>{page}</Fragment>
       {isTab(effective) && <TabBar screen={effective} go={go} />}
     </>
   );
