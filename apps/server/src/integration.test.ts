@@ -394,3 +394,77 @@ test("организатор участвует в любом челлендже
     await prisma.$disconnect();
   }
 });
+
+test("админка: добавить бесплатно, изменить и удалить участника", { skip: !process.env.DATABASE_URL }, async () => {
+  const { buildApp } = await import("./app.js");
+  const { prisma } = await import("./lib/db.js");
+  const { joinStartDate } = await import("./services/enrollments.js");
+  const app = await buildApp();
+  const login = await app.inject({ method: "POST", url: "/admin/api/login", payload: { password: "secret" } });
+  const auth = { authorization: `Bearer ${login.json().token}` };
+  const tg = 950000000 + Math.floor(Math.random() * 1000000);
+  const tgTypo = tg + 1;
+  const uname = `guest_${tg}`;
+  const ch = await prisma.challenge.findUniqueOrThrow({ where: { slug: "no-sugar" } });
+  const today = new Date().toISOString().slice(0, 10);
+  const add = (payload: object) => app.inject({ method: "POST", url: "/admin/api/participants", headers: auth, payload });
+  try {
+    await prisma.user.create({ data: { telegramId: BigInt(tg), username: uname, firstName: "Гость", onboarded: true, timezone: "UTC" } });
+
+    // по @username, день 1 сегодня, бот пишет ему
+    const a1 = await add({ who: `@${uname}`, challengeId: ch.id, startToday: true });
+    assert.equal(a1.statusCode, 200, a1.body);
+    assert.equal(a1.json().created, true);
+    assert.equal(a1.json().startDate, today);
+    assert.equal(a1.json().seenBot, true);
+    assert.equal(a1.json().notified, true);
+    const enr = await prisma.enrollment.findUniqueOrThrow({ where: { id: a1.json().enrollmentId } });
+    assert.equal(enr.source, "admin");
+    // повторно: уже участвует, второе участие не создаётся
+    const a2 = await add({ who: uname, challengeId: ch.id });
+    assert.equal(a2.json().created, false);
+    assert.equal(a2.json().enrollmentId, enr.id);
+
+    // по Telegram ID того, кто бота не открывал: старт по правилам, предупреждение
+    const t1 = await add({ who: String(tgTypo), challengeId: ch.id });
+    assert.equal(t1.statusCode, 200, t1.body);
+    assert.equal(t1.json().seenBot, false);
+    assert.equal(t1.json().notified, false);
+    assert.equal(t1.json().telegramId, String(tgTypo));
+    assert.equal(t1.json().startDate, joinStartDate(ch, "Europe/Moscow"));
+
+    // понятные ошибки
+    assert.equal((await add({ who: "@no_such_user_xyz", challengeId: ch.id })).statusCode, 400);
+    assert.equal((await add({ who: "123", challengeId: ch.id })).statusCode, 400);
+    assert.equal((await add({ who: `@${uname}` })).statusCode, 400);
+
+    // изменить: имя, день 1 (вчера → сейчас день 2), статус
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const ed = await app.inject({ method: "PUT", url: `/admin/api/participants/${enr.id}`, headers: auth, payload: { name: "  Новое имя ", startDate: yesterday, status: "ACTIVE" } });
+    assert.equal(ed.statusCode, 200, ed.body);
+    const row = (await app.inject({ method: "GET", url: `/admin/api/participants?q=${tg}`, headers: auth })).json().find((r: any) => r.enrollmentId === enr.id);
+    assert.equal(row.name, "Новое имя");
+    assert.equal(row.streamStart, yesterday);
+    assert.equal(row.day, 2);
+    assert.equal(row.seenBot, true);
+    const badDate = await app.inject({ method: "PUT", url: `/admin/api/participants/${enr.id}`, headers: auth, payload: { startDate: "2.11.2026" } });
+    assert.equal(badDate.statusCode, 400);
+    const off = await app.inject({ method: "PUT", url: `/admin/api/participants/${enr.id}`, headers: auth, payload: { status: "CANCELLED" } });
+    assert.equal(off.statusCode, 200);
+    assert.equal((await prisma.enrollment.findUniqueOrThrow({ where: { id: enr.id } })).status, "CANCELLED");
+
+    // удалить: ошибочный ID убирается целиком, настоящий человек остаётся, без участия
+    const d1 = await app.inject({ method: "POST", url: `/admin/api/participants/${t1.json().enrollmentId}/delete`, headers: auth });
+    assert.equal(d1.json().userRemoved, true);
+    assert.equal(await prisma.user.count({ where: { telegramId: BigInt(tgTypo) } }), 0);
+    const d2 = await app.inject({ method: "POST", url: `/admin/api/participants/${enr.id}/delete`, headers: auth });
+    assert.equal(d2.json().userRemoved, false);
+    assert.equal(await prisma.enrollment.count({ where: { id: enr.id } }), 0);
+    assert.equal(await prisma.user.count({ where: { telegramId: BigInt(tg) } }), 1);
+    assert.equal((await app.inject({ method: "POST", url: `/admin/api/participants/${enr.id}/delete`, headers: auth })).statusCode, 404);
+  } finally {
+    await prisma.user.deleteMany({ where: { telegramId: { in: [BigInt(tg), BigInt(tgTypo)] } } });
+    await app.close();
+    await prisma.$disconnect();
+  }
+});
