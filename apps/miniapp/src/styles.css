@@ -1167,6 +1167,47 @@ textarea::placeholder {
   background: var(--accent);
 }
 
+/* ================= Мои челленджи и каталог ================= */
+
+.switcher {
+  display: flex;
+  gap: 8px;
+  margin: -6px -16px 16px;
+  padding: 2px 16px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.switcher::-webkit-scrollbar {
+  display: none;
+}
+.switch {
+  flex: none;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.55);
+  font: 600 14px/1.2 var(--font);
+  color: var(--text-2);
+}
+.switch.on {
+  background: var(--text);
+  border-color: var(--text);
+  color: #fff;
+}
+.switch.add {
+  display: inline-flex;
+  align-items: center;
+  padding: 9px 12px;
+  color: var(--text);
+}
+.catalog-card.joined {
+  border-color: var(--good-soft);
+}
+
 /* ================= Нижнее меню ================= */
 
 .tabbar {

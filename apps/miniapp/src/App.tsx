@@ -5,13 +5,13 @@ import { Catalog, Final, Home, Leaderboard, Onboarding, Profile, Progress, Rewar
 import { theme } from "./theme";
 import { Chat } from "./chat";
 
-export type Screen = "home" | "today" | "progress" | "leaderboard" | "rewards" | "rules" | "profile" | "final" | "chat";
+export type Screen = "home" | "catalog" | "today" | "progress" | "leaderboard" | "rewards" | "rules" | "profile" | "final" | "chat";
 
 const TABS: Array<{ id: Screen; label: string; icon: IconName }> = [
   { id: "home", label: "Главная", icon: "home" },
+  { id: "catalog", label: "Челленджи", icon: "catalog" },
   { id: "progress", label: "Прогресс", icon: "progress" },
   { id: "leaderboard", label: "Рейтинг", icon: "rating" },
-  { id: "rewards", label: "Награды", icon: "medal" },
   { id: "profile", label: "Профиль", icon: "profile" },
 ];
 const isTab = (s: Screen) => s === "final" || TABS.some((t) => t.id === s);
@@ -32,6 +32,23 @@ function TabBar({ screen, go }: { screen: Screen; go: (s: Screen) => void }) {
   );
 }
 
+// Какой из челленджей участника открыт сейчас (запоминаем на устройстве)
+const CURRENT_KEY = "currentEnrollment";
+function savedEnrollment(): number | null {
+  try {
+    return Number(localStorage.getItem(CURRENT_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
+function saveEnrollment(id: number) {
+  try {
+    localStorage.setItem(CURRENT_KEY, String(id));
+  } catch {
+    /* без хранилища просто откроется основной челлендж */
+  }
+}
+
 const query = new URLSearchParams(location.search);
 const initialScreen = (query.get("screen") as Screen | null) ?? "home";
 /** Ссылка из уведомления бота может указать, какое участие открыть (например, чат другого челленджа) */
@@ -49,8 +66,10 @@ export function App() {
       await api.post("/timezone", { timezone: tz }).catch(() => undefined);
       const m = await api.get<Me>("/me");
       setMe(m);
-      const wanted = m.enrollments.some((e) => e.id === initialEnrollment) ? initialEnrollment : m.primaryEnrollmentId;
-      if (wanted) setState(await api.get<State>(`/enrollments/${wanted}`));
+      const has = (id: number | null) => id !== null && m.enrollments.some((e) => e.id === id);
+      const saved = savedEnrollment();
+      const id = has(initialEnrollment) ? initialEnrollment : has(saved) ? saved : m.primaryEnrollmentId;
+      if (id) setState(await api.get<State>(`/enrollments/${id}`));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -80,11 +99,25 @@ export function App() {
     setScreen(s);
     window.scrollTo(0, 0);
   };
-  const props = { state, setState, go, me };
+  /** Переключиться на другой свой челлендж */
+  const open = async (id: number) => {
+    try {
+      const [next, m] = await Promise.all([api.get<State>(`/enrollments/${id}`), api.get<Me>("/me")]);
+      saveEnrollment(id);
+      setMe(m);
+      setState(next);
+      go("home");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const props = { state, setState, go, me, open };
   const effective = screen === "home" && state.phase === "finished" ? "final" : screen;
 
   const page = (() => {
     switch (effective) {
+      case "catalog":
+        return <Catalog current={state.enrollmentId} onOpen={open} />;
       case "today":
         return <Today {...props} />;
       case "progress":
