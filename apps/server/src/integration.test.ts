@@ -172,7 +172,7 @@ test("чат челленджа: пишут только участники, у 
   const app = await buildApp();
   const login = await app.inject({ method: "POST", url: "/admin/api/login", payload: { password: "secret" } });
   const auth = { authorization: `Bearer ${login.json().token}` };
-  const base = 920000000 + Math.floor(Math.random() * 1000000);
+  const base = 930000000 + Math.floor(Math.random() * 1000000);
   const ids = [base, base + 1, base + 2, base + 3];
   const ch = await prisma.challenge.findUniqueOrThrow({ where: { slug: "no-sugar" } });
   const other = await prisma.challenge.findFirstOrThrow({ where: { id: { not: ch.id } }, orderBy: { id: "asc" } });
