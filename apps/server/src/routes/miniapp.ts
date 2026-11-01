@@ -11,6 +11,7 @@ import { isValidTimezone } from "../lib/dates.js";
 import {
   challengeLeaderboard,
   currentDayOf,
+  grantAccess,
   enrollmentsByChallenge,
   enrollmentState,
   joinStartDate,
@@ -107,6 +108,7 @@ function serializeUser(u: User) {
     goalOther: u.goalOther,
     timezone: u.timezone,
     onboarded: u.onboarded,
+    isOrganizer: u.isOrganizer,
   };
 }
 
@@ -188,7 +190,8 @@ export async function miniappRoutes(app: FastifyInstance) {
     const user = req.tgUser!;
     const [list, mine] = await Promise.all([
       prisma.challenge.findMany({
-        where: { status: "ACTIVE" },
+        // организатор видит и черновики, чтобы проверить челлендж до запуска
+        where: { status: { in: user.isOrganizer ? ["ACTIVE", "DRAFT"] : ["ACTIVE"] } },
         orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
       }),
       prisma.enrollment.findMany({
@@ -212,9 +215,20 @@ export async function miniappRoutes(app: FastifyInstance) {
         /** Когда начнутся 30 дней, если записаться сейчас */
         nextStart: joinStartDate(ch, user.timezone),
         joined: j ? { enrollmentId: j.e.id, phase: j.phase, startDate: j.e.startDate } : null,
+        draft: ch.status === "DRAFT",
       });
     }
-    return { challenges: out, botUsername: config.botUsername };
+    return { challenges: out, botUsername: config.botUsername, organizer: user.isOrganizer };
+  });
+
+  /** Организатор участвует в любом челлендже бесплатно; его 30 дней начинаются сегодня */
+  app.post<{ Params: { id: string } }>("/challenges/:id/join", async (req) => {
+    const user = req.tgUser!;
+    if (!user.isOrganizer) throw new HttpError(403, "Участие открывается после оплаты");
+    const ch = await prisma.challenge.findUnique({ where: { id: Number(req.params.id) } });
+    if (!ch || ch.status === "ARCHIVED") throw new HttpError(404, "Челлендж не найден");
+    const res = await grantAccess(user.id, ch.id, "organizer", new Date(), { startToday: true });
+    return { enrollmentId: res.enrollment.id };
   });
 
   app.get<{ Params: { id: string } }>("/enrollments/:id", async (req) => {

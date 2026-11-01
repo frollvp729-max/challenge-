@@ -41,6 +41,14 @@ function pick(body: any, fields: readonly string[]) {
   return out;
 }
 
+const SOURCE_LABELS: Record<string, string> = {
+  organizer: "организатор (бесплатно)",
+  admin: "выдан вручную",
+  free: "бесплатный челлендж",
+  tribute_product: "разовая покупка",
+  tribute_subscription: "подписка",
+};
+
 const json = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? String(v) : v)));
 
 export async function adminRoutes(app: FastifyInstance) {
@@ -241,7 +249,9 @@ export async function adminRoutes(app: FastifyInstance) {
         challenge: e.stream.challenge.title,
         streamStart: e.startDate,
         source: e.source,
-        payment: sub ? `${sub.status === "active" ? "активна" : "отменена"} до ${sub.expiresAt.toISOString().slice(0, 10)}` : e.source,
+        payment: sub
+          ? `${sub.status === "active" ? "активна" : "отменена"} до ${sub.expiresAt.toISOString().slice(0, 10)}`
+          : SOURCE_LABELS[e.source] ?? e.source,
         day: currentDayOf(e),
         currentStreak: e.currentStreak,
         bestStreak: e.bestStreak,
@@ -269,6 +279,41 @@ export async function adminRoutes(app: FastifyInstance) {
     const status = String((req.body as any)?.status);
     if (!["ACTIVE", "COMPLETED", "CANCELLED"].includes(status)) throw Object.assign(new Error("Неверный статус"), { statusCode: 400 });
     return prisma.enrollment.update({ where: { id: Number(req.params.id) }, data: { status: status as any } });
+  });
+
+  // ---------- Организаторы: бесплатный доступ ко всем челленджам ----------
+  const serializeOrganizer = (u: { id: number; telegramId: bigint; username: string | null; displayName: string | null; firstName: string | null }) => ({
+    id: u.id,
+    telegramId: String(u.telegramId),
+    username: u.username,
+    name: displayNameOf(u),
+  });
+
+  app.get("/organizers", async () =>
+    (await prisma.user.findMany({ where: { isOrganizer: true }, orderBy: { id: "asc" } })).map(serializeOrganizer),
+  );
+
+  /** Назначить организатора по @username (он уже открывал бота) или по Telegram ID */
+  app.post("/organizers", async (req) => {
+    const who = String((req.body as any)?.who ?? "").trim().replace(/^@/, "").replace(/^https?:\/\/t\.me\//, "");
+    if (!who) throw Object.assign(new Error("Укажите @username или Telegram ID"), { statusCode: 400 });
+    let user;
+    if (/^\d{4,}$/.test(who)) {
+      const tgId = BigInt(who);
+      user = await prisma.user.upsert({ where: { telegramId: tgId }, create: { telegramId: tgId, isOrganizer: true }, update: { isOrganizer: true } });
+    } else {
+      const found = await prisma.user.findMany({ where: { username: { equals: who, mode: "insensitive" } } });
+      if (found.length !== 1) {
+        throw Object.assign(new Error(`Пользователь @${who} не найден. Пусть он сначала откроет бота и нажмёт «Старт»`), { statusCode: 400 });
+      }
+      user = await prisma.user.update({ where: { id: found[0].id }, data: { isOrganizer: true } });
+    }
+    return serializeOrganizer(user);
+  });
+
+  app.post<{ Params: { id: string } }>("/organizers/:id/remove", async (req) => {
+    await prisma.user.update({ where: { id: Number(req.params.id) }, data: { isOrganizer: false } });
+    return { ok: true };
   });
 
   // ---------- Чаты участников ----------

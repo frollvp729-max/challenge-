@@ -1610,3 +1610,13 @@ textarea::placeholder {
   max-height: 100%;
   border-radius: 12px;
 }
+
+/* Подсказка организатору в каталоге */
+.organizer-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  padding: 14px 16px;
+}

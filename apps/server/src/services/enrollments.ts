@@ -312,7 +312,7 @@ export async function grantAccess(
   challengeId: number,
   source: string,
   now = new Date(),
-  opts: { renewal?: boolean } = {},
+  opts: { renewal?: boolean; startToday?: boolean } = {},
 ) {
   const ch = await prisma.challenge.findUniqueOrThrow({ where: { id: challengeId } });
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
@@ -321,7 +321,8 @@ export async function grantAccess(
     orderBy: { startDate: "asc" },
   });
   const live = existing.filter((e) => currentDayOf({ ...e, user }, now) <= ch.durationDays);
-  let startDate = joinStartDate(ch, user.timezone, now);
+  // организатор начинает сразу, чтобы посмотреть день 1, даже до даты открытия
+  let startDate = opts.startToday ? localDate(now, user.timezone) : joinStartDate(ch, user.timezone, now);
   if (live.length) {
     const last = live[live.length - 1];
     const lastDay = currentDayOf({ ...last, user }, now);

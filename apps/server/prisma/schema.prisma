@@ -29,6 +29,8 @@ model User {
   onboarded   Boolean  @default(false)
   /// Админ запретил писать в чаты
   chatBanned  Boolean  @default(false)
+  /// Организатор: участвует в любом челлендже бесплатно, видит черновики
+  isOrganizer Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

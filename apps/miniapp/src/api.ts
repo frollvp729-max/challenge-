@@ -54,6 +54,8 @@ export interface User {
   goalOther: string | null;
   timezone: string;
   onboarded: boolean;
+  /** Организатор участвует в любом челлендже бесплатно */
+  isOrganizer: boolean;
 }
 
 export interface Me {
@@ -184,6 +186,8 @@ export interface CatalogItem {
   tributeLink: string | null;
   nextStart: string | null;
   joined: { enrollmentId: number; phase: Phase; startDate: string } | null;
+  /** Черновик: виден только организатору */
+  draft: boolean;
 }
 
 export interface ChatMessage {

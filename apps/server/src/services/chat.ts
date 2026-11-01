@@ -57,7 +57,7 @@ export async function serializeMessages(challengeId: number, list: MessageWithRe
       photoUrl: m.user?.photoUrl ?? null,
       organizer: m.userId === null,
       isMe: viewerId !== null && m.userId === viewerId,
-      badge: m.userId === null ? null : days.get(m.userId) ?? null,
+      badge: m.userId === null ? null : m.user?.isOrganizer ? "организатор" : days.get(m.userId) ?? null,
       banned: m.user?.chatBanned ?? false,
     },
     replyTo: m.replyTo ? { id: m.replyTo.id, name: authorName(m.replyTo.user), text: snippet(m.replyTo) } : null,

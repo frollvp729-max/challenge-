@@ -932,17 +932,34 @@ export function Profile({ me, go, onSaved }: Props & { onSaved: (u: User) => voi
 export function Catalog({ current, onOpen }: { current?: number; onOpen?: (enrollmentId: number) => void }) {
   const [items, setItems] = useState<CatalogItem[] | null>(null);
   const [bot, setBot] = useState("");
+  const [organizer, setOrganizer] = useState(false);
+  const [busy, setBusy] = useState<number | null>(null);
   useEffect(() => {
     api
-      .get<{ challenges: CatalogItem[]; botUsername: string }>("/challenges")
+      .get<{ challenges: CatalogItem[]; botUsername: string; organizer?: boolean }>("/challenges")
       .then((r) => {
         setItems(r.challenges);
         setBot(r.botUsername);
+        setOrganizer(Boolean(r.organizer));
       })
       .catch((e) => alertMsg(e.message));
   }, []);
-  const inTabs = Boolean(onOpen);
-  const join = (c: CatalogItem) => {
+  const inTabs = current !== undefined;
+  const join = async (c: CatalogItem) => {
+    // организатор участвует бесплатно и сразу попадает в челлендж
+    if (organizer && onOpen) {
+      setBusy(c.id);
+      try {
+        const r = await api.post<{ enrollmentId: number }>(`/challenges/${c.id}/join`);
+        haptic("success");
+        onOpen(r.enrollmentId);
+      } catch (e) {
+        alertMsg((e as Error).message);
+      } finally {
+        setBusy(null);
+      }
+      return;
+    }
     if (c.tributeLink) openTgLink(c.tributeLink);
     else if (bot) openTgLink(`https://t.me/${bot}?start=c_${c.slug}`);
   };
@@ -959,6 +976,12 @@ export function Catalog({ current, onOpen }: { current?: number; onOpen?: (enrol
           Можно участвовать в нескольких сразу.
         </p>
       </div>
+      {organizer && (
+        <div className="card organizer-note">
+          <IconTile icon="seal" tone="rank" size="sm" />
+          <span>Вы организатор: любой челлендж бесплатно, ваш день 1 начинается сразу. Черновики видите только вы.</span>
+        </div>
+      )}
       {!items && <div className="center muted">Загрузка…</div>}
       {items?.length === 0 && <div className="card muted">Скоро здесь появятся челленджи.</div>}
       {items?.map((c) => {
@@ -977,9 +1000,14 @@ export function Catalog({ current, onOpen }: { current?: number; onOpen?: (enrol
                 </span>
               ) : (
                 <>
+                  {c.draft && <span className="chip">Черновик</span>}
                   {c.joined?.phase === "finished" && <span className="chip chip-good">Пройден</span>}
-                  {c.nextStart && (
-                    <span className="chip">{c.nextStart === tomorrowIso() ? "Старт завтра" : `Старт ${humanDate(c.nextStart)}`}</span>
+                  {organizer ? (
+                    <span className="chip">Старт сегодня</span>
+                  ) : (
+                    c.nextStart && (
+                      <span className="chip">{c.nextStart === tomorrowIso() ? "Старт завтра" : `Старт ${humanDate(c.nextStart)}`}</span>
+                    )
                   )}
                 </>
               )}
@@ -989,14 +1017,14 @@ export function Catalog({ current, onOpen }: { current?: number; onOpen?: (enrol
                 {isCurrent ? "Открыт сейчас" : "Открыть"}
               </button>
             ) : (
-              <button className="btn btn-primary wide" onClick={() => join(c)}>
-                {c.joined ? "Пройти ещё раз" : "Участвовать"} · {price(c)}
+              <button className="btn btn-primary wide" disabled={busy === c.id} onClick={() => void join(c)}>
+                {c.joined ? "Пройти ещё раз" : "Участвовать"} · {organizer ? "бесплатно" : price(c)}
               </button>
             )}
           </section>
         );
       })}
-      {items && items.length > 0 && (
+      {items && items.length > 0 && !organizer && (
         <p className="muted small center-text">После оплаты вернись сюда: доступ откроется автоматически.</p>
       )}
     </div>

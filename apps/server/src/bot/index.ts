@@ -50,9 +50,10 @@ async function upsertFromCtx(from: { id: number; username?: string; first_name?:
   });
 }
 
-async function defaultChallenge(slug?: string) {
+async function defaultChallenge(slug?: string, organizer = false) {
   if (slug) {
-    const bySlug = await prisma.challenge.findFirst({ where: { slug, status: "ACTIVE" } });
+    // организатор по ссылке открывает и черновик
+    const bySlug = await prisma.challenge.findFirst({ where: { slug, status: organizer ? { in: ["ACTIVE", "DRAFT"] } : "ACTIVE" } });
     if (bySlug) return bySlug;
   }
   return prisma.challenge.findFirst({ where: { status: "ACTIVE" }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] });
@@ -75,7 +76,7 @@ export function setupBot() {
       });
       return;
     }
-    const ch = await defaultChallenge(slug);
+    const ch = await defaultChallenge(slug, user.isOrganizer);
     if (!ch) {
       await ctx.reply("Скоро здесь появится новый челлендж. Мы напишем, когда откроется запись.");
       return;
@@ -93,11 +94,20 @@ export function setupBot() {
   bot.callbackQuery(/^join:(\d+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
     const ch = await prisma.challenge.findUnique({ where: { id: Number(ctx.match[1]) } });
+    const user = await upsertFromCtx(ctx.from);
+    // организатор участвует бесплатно в любом челлендже, кроме архивных, и начинает сразу
+    if (ch && user.isOrganizer && ch.status !== "ARCHIVED") {
+      const res = await grantAccess(user.id, ch.id, "organizer", new Date(), { startToday: true });
+      await ctx.reply(`Вы организатор: доступ к «${esc(ch.title)}» открыт бесплатно, ваш день 1 — сегодня.`, {
+        parse_mode: "HTML",
+        reply_markup: openAppKeyboard("ОТКРЫТЬ ЧЕЛЛЕНДЖ", { enrollment: String(res.enrollment.id) }),
+      });
+      return;
+    }
     if (!ch || ch.status !== "ACTIVE") {
       await ctx.reply("Запись на этот челлендж закрыта.");
       return;
     }
-    const user = await upsertFromCtx(ctx.from);
     if (ch.paymentMode === "FREE") {
       const res = await grantAccess(user.id, ch.id, "free");
       const m = paidMessage(res.startDate, user.timezone);

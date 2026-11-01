@@ -90,11 +90,6 @@ export function App() {
     return () => bb.offClick(back);
   }, [screen]);
 
-  if (error) return <div className="center muted">{error}</div>;
-  if (!me) return <div className="center muted">Загрузка…</div>;
-  if (!me.user.onboarded) return <Onboarding user={me.user} onDone={(u) => setMe({ ...me, user: u })} />;
-  if (!state) return <Catalog />;
-
   const go = (s: Screen) => {
     setScreen(s);
     window.scrollTo(0, 0);
@@ -111,6 +106,12 @@ export function App() {
       setError((e as Error).message);
     }
   };
+
+  if (error) return <div className="center muted">{error}</div>;
+  if (!me) return <div className="center muted">Загрузка…</div>;
+  if (!me.user.onboarded) return <Onboarding user={me.user} onDone={(u) => setMe({ ...me, user: u })} />;
+  if (!state) return <Catalog onOpen={open} />;
+
   const props = { state, setState, go, me, open };
   const effective = screen === "home" && state.phase === "finished" ? "final" : screen;
 
