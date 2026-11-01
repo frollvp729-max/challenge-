@@ -54,13 +54,29 @@ export interface User {
   goalOther: string | null;
   timezone: string;
   onboarded: boolean;
+  /** Организатор участвует в любом челлендже бесплатно */
+  isOrganizer: boolean;
 }
 
 export interface Me {
   user: User;
   botUsername: string;
   primaryEnrollmentId: number | null;
-  enrollments: { id: number; challengeTitle: string; startDate: string; status: string; points: number }[];
+  enrollments: MyEnrollment[];
+}
+
+export type Phase = "upcoming" | "running" | "finished";
+
+/** Участие в одном челлендже (их может быть несколько одновременно) */
+export interface MyEnrollment {
+  id: number;
+  challengeId: number;
+  challengeTitle: string;
+  startDate: string;
+  status: string;
+  points: number;
+  phase: Phase;
+  day: number;
 }
 
 export interface DayTask {
@@ -112,7 +128,7 @@ export interface State {
   };
   /** Личный старт участника: у каждого свои 30 дней */
   stream: { id: number; startDate: string; startsAt: string };
-  phase: "upcoming" | "running" | "finished";
+  phase: Phase;
   today: string;
   day: number;
   score: {
@@ -169,6 +185,9 @@ export interface CatalogItem {
   paymentMode: string;
   tributeLink: string | null;
   nextStart: string | null;
+  joined: { enrollmentId: number; phase: Phase; startDate: string } | null;
+  /** Черновик: виден только организатору */
+  draft: boolean;
 }
 
 export interface ChatMessage {

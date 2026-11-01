@@ -312,7 +312,7 @@ export async function grantAccess(
   challengeId: number,
   source: string,
   now = new Date(),
-  opts: { renewal?: boolean } = {},
+  opts: { renewal?: boolean; startToday?: boolean } = {},
 ) {
   const ch = await prisma.challenge.findUniqueOrThrow({ where: { id: challengeId } });
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
@@ -321,7 +321,8 @@ export async function grantAccess(
     orderBy: { startDate: "asc" },
   });
   const live = existing.filter((e) => currentDayOf({ ...e, user }, now) <= ch.durationDays);
-  let startDate = joinStartDate(ch, user.timezone, now);
+  // организатор начинает сразу, чтобы посмотреть день 1, даже до даты открытия
+  let startDate = opts.startToday ? localDate(now, user.timezone) : joinStartDate(ch, user.timezone, now);
   if (live.length) {
     const last = live[live.length - 1];
     const lastDay = currentDayOf({ ...last, user }, now);
@@ -353,4 +354,26 @@ export async function primaryEnrollment(userId: number, now = new Date()): Promi
     [...withDay].reverse().find((x) => x.day < 1)?.e ??
     withDay[0].e
   );
+}
+
+export type EnrollmentPhase = "upcoming" | "running" | "finished";
+
+/**
+ * По одному участию на челлендж (у участника их может быть несколько одновременно):
+ * идущее сейчас, иначе ближайшее будущее, иначе последнее завершённое.
+ */
+export function enrollmentsByChallenge(list: EnrollmentFull[], now = new Date()) {
+  const rank: Record<EnrollmentPhase, number> = { running: 0, upcoming: 1, finished: 2 };
+  const best = new Map<number, { e: EnrollmentFull; phase: EnrollmentPhase; day: number }>();
+  for (const e of list) {
+    const day = currentDayOf(e, now);
+    const phase: EnrollmentPhase = day < 1 ? "upcoming" : day > e.stream.challenge.durationDays ? "finished" : "running";
+    const prev = best.get(e.stream.challengeId);
+    const better =
+      !prev ||
+      rank[phase] < rank[prev.phase] ||
+      (rank[phase] === rank[prev.phase] && (phase === "upcoming" ? e.startDate < prev.e.startDate : e.startDate > prev.e.startDate));
+    if (better) best.set(e.stream.challengeId, { e, phase, day });
+  }
+  return [...best.values()];
 }

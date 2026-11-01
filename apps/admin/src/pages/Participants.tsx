@@ -24,6 +24,61 @@ interface Ch {
   title: string;
 }
 
+interface Organizer {
+  id: number;
+  telegramId: string;
+  username: string | null;
+  name: string;
+}
+
+/** Организаторы участвуют в любом челлендже бесплатно и видят черновики */
+function Organizers() {
+  const [list, setList] = useState<Organizer[]>([]);
+  const [who, setWho] = useState("");
+  const [err, setErr] = useState("");
+  const load = () => {
+    api.get<Organizer[]>("/organizers").then(setList).catch((e) => setErr(e.message));
+  };
+  useEffect(load, []);
+  const add = async () => {
+    setErr("");
+    try {
+      await api.post("/organizers", { who });
+      setWho("");
+      load();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  const remove = async (o: Organizer) => {
+    if (!confirm(`Убрать ${o.name} из организаторов? Его текущие участия останутся.`)) return;
+    await api.post(`/organizers/${o.id}/remove`);
+    load();
+  };
+  return (
+    <div className="panel">
+      <h2 style={{ marginTop: 0 }}>Организаторы</h2>
+      <p className="muted">
+        Организатор участвует в любом челлендже бесплатно: в приложении во вкладке «Челленджи» у него кнопка «Участвовать · бесплатно», его
+        день 1 начинается сразу. Черновики он тоже видит, чтобы проверить челлендж до запуска.
+      </p>
+      {err && <div className="error">{err}</div>}
+      {list.map((o) => (
+        <div key={o.id} className="row">
+          <b>{o.name}</b>
+          <span className="muted">{o.username ? `@${o.username}` : ""} · ID {o.telegramId}</span>
+          <button className="small" onClick={() => remove(o)}>Убрать</button>
+        </div>
+      ))}
+      <div className="row">
+        <input placeholder="@username или Telegram ID" value={who} onChange={(e) => setWho(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+        <button className="primary" disabled={!who.trim()} onClick={add}>Сделать организатором</button>
+      </div>
+      <p className="muted small">По @username находим того, кто уже открывал бота. Если не находится, нажмите «Старт» в боте и попробуйте снова.</p>
+    </div>
+  );
+}
+
 const ST: Record<string, string> = { ACTIVE: "Активен", COMPLETED: "Завершил", CANCELLED: "Отключён" };
 
 export function Participants({ initialChallenge }: { initialChallenge: string }) {
@@ -78,6 +133,7 @@ export function Participants({ initialChallenge }: { initialChallenge: string })
   return (
     <>
       <h1>Участники {challenge ? "и рейтинг челленджа" : ""}</h1>
+      <Organizers />
       {err && <div className="error">{err}</div>}
       <div className="row">
         <select value={challenge} onChange={(e) => setChallenge(e.target.value)}>

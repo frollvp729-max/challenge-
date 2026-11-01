@@ -332,3 +332,65 @@ test("чат челленджа: пишут только участники, у 
     await prisma.$disconnect();
   }
 });
+
+test("организатор участвует в любом челлендже бесплатно, видит черновики", { skip: !process.env.DATABASE_URL }, async () => {
+  const { buildApp } = await import("./app.js");
+  const { prisma } = await import("./lib/db.js");
+  const app = await buildApp();
+  const login = await app.inject({ method: "POST", url: "/admin/api/login", payload: { password: "secret" } });
+  const auth = { authorization: `Bearer ${login.json().token}` };
+  const tg = 940000000 + Math.floor(Math.random() * 1000000);
+  const tgOther = tg + 1;
+  const uname = `org_${tg}`;
+  const h = (t: number) => ({ "x-dev-user": String(t) });
+  const active = await prisma.challenge.findUniqueOrThrow({ where: { slug: "no-sugar" } });
+  const draft = await prisma.challenge.findFirstOrThrow({ where: { status: "DRAFT" } });
+  try {
+    await prisma.user.create({ data: { telegramId: BigInt(tg), username: uname, displayName: "Орг", onboarded: true, timezone: "UTC" } });
+    await prisma.user.create({ data: { telegramId: BigInt(tgOther), displayName: "Гость", onboarded: true, timezone: "UTC" } });
+
+    // обычный участник бесплатно не записывается и черновиков не видит
+    assert.equal((await app.inject({ method: "POST", url: `/api/challenges/${active.id}/join`, headers: h(tgOther) })).statusCode, 403);
+    const guestList = (await app.inject({ method: "GET", url: "/api/challenges", headers: h(tgOther) })).json();
+    assert.equal(guestList.organizer, false);
+    assert.equal(guestList.challenges.some((c: any) => c.id === draft.id), false);
+
+    // назначение в админке: неизвестный @username — понятная ошибка, известный — ок
+    const bad = await app.inject({ method: "POST", url: "/admin/api/organizers", headers: auth, payload: { who: "@no_such_user_xyz" } });
+    assert.equal(bad.statusCode, 400);
+    const ok = await app.inject({ method: "POST", url: "/admin/api/organizers", headers: auth, payload: { who: `@${uname.toUpperCase()}` } });
+    assert.equal(ok.statusCode, 200, ok.body);
+    const orgs = (await app.inject({ method: "GET", url: "/admin/api/organizers", headers: auth })).json();
+    assert.equal(orgs.some((o: any) => o.telegramId === String(tg)), true);
+
+    const me = (await app.inject({ method: "GET", url: "/api/me", headers: h(tg) })).json();
+    assert.equal(me.user.isOrganizer, true);
+    const list = (await app.inject({ method: "GET", url: "/api/challenges", headers: h(tg) })).json();
+    assert.equal(list.organizer, true);
+    assert.equal(list.challenges.find((c: any) => c.id === draft.id).draft, true);
+
+    // запись бесплатно, день 1 сегодня; повторное нажатие не создаёт второе участие
+    const j1 = (await app.inject({ method: "POST", url: `/api/challenges/${active.id}/join`, headers: h(tg) })).json();
+    const j2 = (await app.inject({ method: "POST", url: `/api/challenges/${active.id}/join`, headers: h(tg) })).json();
+    assert.equal(j1.enrollmentId, j2.enrollmentId);
+    const st = (await app.inject({ method: "GET", url: `/api/enrollments/${j1.enrollmentId}`, headers: h(tg) })).json();
+    assert.equal(st.day, 1);
+    assert.equal(st.stream.startDate, new Date().toISOString().slice(0, 10));
+    const enr = await prisma.enrollment.findUniqueOrThrow({ where: { id: j1.enrollmentId } });
+    assert.equal(enr.source, "organizer");
+    const jd = await app.inject({ method: "POST", url: `/api/challenges/${draft.id}/join`, headers: h(tg) });
+    assert.equal(jd.statusCode, 200, jd.body);
+
+    // в чате у организатора пометка
+    const msg = (await app.inject({ method: "POST", url: `/api/enrollments/${j1.enrollmentId}/chat`, headers: h(tg), payload: { text: "Привет от организатора" } })).json();
+    assert.equal(msg.message.author.badge, "организатор");
+
+    // снятие роли закрывает бесплатную запись
+    await app.inject({ method: "POST", url: `/admin/api/organizers/${me.user.id}/remove`, headers: auth });
+    assert.equal((await app.inject({ method: "POST", url: `/api/challenges/${draft.id}/join`, headers: h(tg) })).statusCode, 403);
+  } finally {
+    await prisma.user.deleteMany({ where: { telegramId: { in: [BigInt(tg), BigInt(tgOther)] } } });
+    await app.close();
+    await prisma.$disconnect();
+  }
+});

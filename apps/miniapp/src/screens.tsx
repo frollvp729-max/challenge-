@@ -11,6 +11,8 @@ interface Props {
   setState: (s: State) => void;
   go: (s: Screen) => void;
   me: Me;
+  /** Открыть другой свой челлендж */
+  open?: (enrollmentId: number) => void;
 }
 
 const days = (n: number) => plural(n, "день", "дня", "дней");
@@ -165,7 +167,30 @@ function greeting() {
 
 // ---------------- Главный экран ----------------
 
-export function Home({ state, setState, go, me }: Props) {
+/** Переключатель между челленджами участника (если их несколько) */
+function Switcher({ me, current, open, go }: { me: Me; current: number; open?: (id: number) => void; go: (s: Screen) => void }) {
+  if (me.enrollments.length < 2 || !open) return null;
+  return (
+    <div className="switcher" role="tablist" aria-label="Мои челленджи">
+      {me.enrollments.map((e) => (
+        <button
+          key={e.id}
+          role="tab"
+          aria-selected={e.id === current}
+          className={`switch${e.id === current ? " on" : ""}`}
+          onClick={() => e.id !== current && open(e.id)}
+        >
+          {e.challengeTitle}
+        </button>
+      ))}
+      <button className="switch add" onClick={() => go("catalog")} aria-label="Все челленджи">
+        <Icon name="catalog" size={16} weight="bold" />
+      </button>
+    </div>
+  );
+}
+
+export function Home({ state, setState, go, me, open }: Props) {
   const ch = state.challenge;
   const s = state.score;
   const [now, setNow] = useState(Date.now());
@@ -191,6 +216,7 @@ export function Home({ state, setState, go, me }: Props) {
           <Icon name="star" size={16} weight="fill" /> {s.points}
         </button>
       </div>
+      <Switcher me={me} current={state.enrollmentId} open={open} go={go} />
 
       {state.phase === "upcoming" ? (
         <>
@@ -265,7 +291,9 @@ export function Home({ state, setState, go, me }: Props) {
 
       <div className="list">
         <ListRow icon="rules" label="Правила челленджа" onClick={() => go("rules")} />
+        <ListRow icon="medal" tone="star" label="Награды" onClick={() => go("rewards")} />
         {ch.chatLink && <ListRow icon="users" tone="rank" label="Группа в Telegram" onClick={() => openTgLink(ch.chatLink!)} />}
+        <ListRow icon="catalog" tone="task" label="Другие челленджи" onClick={() => go("catalog")} />
       </div>
     </div>
   );
@@ -900,48 +928,105 @@ export function Profile({ me, go, onSaved }: Props & { onSaved: (u: User) => voi
 
 // ---------------- Каталог (нет участия) ----------------
 
-export function Catalog() {
+/** Все открытые челленджи. Без участия это стартовый экран, с участием вкладка «Челленджи». */
+export function Catalog({ current, onOpen }: { current?: number; onOpen?: (enrollmentId: number) => void }) {
   const [items, setItems] = useState<CatalogItem[] | null>(null);
   const [bot, setBot] = useState("");
+  const [organizer, setOrganizer] = useState(false);
+  const [busy, setBusy] = useState<number | null>(null);
   useEffect(() => {
     api
-      .get<{ challenges: CatalogItem[]; botUsername: string }>("/challenges")
+      .get<{ challenges: CatalogItem[]; botUsername: string; organizer?: boolean }>("/challenges")
       .then((r) => {
         setItems(r.challenges);
         setBot(r.botUsername);
+        setOrganizer(Boolean(r.organizer));
       })
       .catch((e) => alertMsg(e.message));
   }, []);
+  const inTabs = current !== undefined;
+  const join = async (c: CatalogItem) => {
+    // организатор участвует бесплатно и сразу попадает в челлендж
+    if (organizer && onOpen) {
+      setBusy(c.id);
+      try {
+        const r = await api.post<{ enrollmentId: number }>(`/challenges/${c.id}/join`);
+        haptic("success");
+        onOpen(r.enrollmentId);
+      } catch (e) {
+        alertMsg((e as Error).message);
+      } finally {
+        setBusy(null);
+      }
+      return;
+    }
+    if (c.tributeLink) openTgLink(c.tributeLink);
+    else if (bot) openTgLink(`https://t.me/${bot}?start=c_${c.slug}`);
+  };
+  const price = (c: CatalogItem) =>
+    c.paymentMode === "FREE" ? "бесплатно" : `${c.priceRub} ₽${c.paymentMode === "SUBSCRIPTION" ? "/мес" : ""}`;
   return (
-    <div className="page">
+    <div className={`page${inTabs ? " tabs" : ""}`}>
       <div className="intro">
         <IconTile icon="leaf" tone="task" size="lg" />
         <h1 className="title">Челленджи</h1>
-        <p className="subtitle">30 дней. Каждый день одно простое действие.</p>
+        <p className="subtitle">
+          30 дней. Каждый день одно простое действие.
+          <br />
+          Можно участвовать в нескольких сразу.
+        </p>
       </div>
+      {organizer && (
+        <div className="card organizer-note">
+          <IconTile icon="seal" tone="rank" size="sm" />
+          <span>Вы организатор: любой челлендж бесплатно, ваш день 1 начинается сразу. Черновики видите только вы.</span>
+        </div>
+      )}
+      {!items && <div className="center muted">Загрузка…</div>}
       {items?.length === 0 && <div className="card muted">Скоро здесь появятся челленджи.</div>}
-      {items?.map((c) => (
-        <section key={c.id} className="card">
-          {c.coverUrl && <img className="task-img" src={c.coverUrl} alt="" />}
-          <h2 className="task-title big">{c.title}</h2>
-          <p className="muted">{c.tagline}</p>
-          {c.nextStart && (
+      {items?.map((c) => {
+        const j = c.joined && c.joined.phase !== "finished" ? c.joined : null;
+        const isCurrent = j?.enrollmentId === current;
+        return (
+          <section key={c.id} className={`card catalog-card${j ? " joined" : ""}`}>
+            {c.coverUrl && <img className="task-img" src={c.coverUrl} alt="" />}
+            <h2 className="task-title big">{c.title}</h2>
+            <p className="muted">{c.tagline}</p>
             <div className="card-head">
-              <span className="chip">{c.nextStart === tomorrowIso() ? "Старт завтра" : `Старт ${humanDate(c.nextStart)}`}</span>
+              {j ? (
+                <span className="chip chip-good">
+                  <Icon name="check" size={14} weight="bold" />
+                  {j.phase === "running" ? "Ты участвуешь" : `Ты записан · старт ${humanDate(j.startDate)}`}
+                </span>
+              ) : (
+                <>
+                  {c.draft && <span className="chip">Черновик</span>}
+                  {c.joined?.phase === "finished" && <span className="chip chip-good">Пройден</span>}
+                  {organizer ? (
+                    <span className="chip">Старт сегодня</span>
+                  ) : (
+                    c.nextStart && (
+                      <span className="chip">{c.nextStart === tomorrowIso() ? "Старт завтра" : `Старт ${humanDate(c.nextStart)}`}</span>
+                    )
+                  )}
+                </>
+              )}
             </div>
-          )}
-          <button
-            className="btn btn-primary wide"
-            onClick={() => {
-              if (c.tributeLink) openTgLink(c.tributeLink);
-              else if (bot) openTgLink(`https://t.me/${bot}?start=c_${c.slug}`);
-            }}
-          >
-            Участвовать · {c.priceRub} ₽{c.paymentMode === "SUBSCRIPTION" ? "/мес" : ""}
-          </button>
-        </section>
-      ))}
-      <p className="muted small center-text">После оплаты вернись сюда: доступ откроется автоматически.</p>
+            {j && onOpen ? (
+              <button className="btn btn-soft wide" disabled={isCurrent} onClick={() => onOpen(j.enrollmentId)}>
+                {isCurrent ? "Открыт сейчас" : "Открыть"}
+              </button>
+            ) : (
+              <button className="btn btn-primary wide" disabled={busy === c.id} onClick={() => void join(c)}>
+                {c.joined ? "Пройти ещё раз" : "Участвовать"} · {organizer ? "бесплатно" : price(c)}
+              </button>
+            )}
+          </section>
+        );
+      })}
+      {items && items.length > 0 && !organizer && (
+        <p className="muted small center-text">После оплаты вернись сюда: доступ откроется автоматически.</p>
+      )}
     </div>
   );
 }
