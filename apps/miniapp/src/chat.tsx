@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { api, type ChatMessage, type ChatPage, type ChatSummary, type State } from "./api";
+import { api, type ChatMessage, type ChatPage, type ChatSummary, type Me, type State } from "./api";
 import type { Screen } from "./App";
 import { Avatar, Icon, IconTile } from "./icons";
-import { alertMsg, compressImage, haptic, humanDate, plural } from "./util";
+import { alertMsg, compressImage, haptic, humanDate, inChallenges, plural } from "./util";
+import { ChallengeSwitch } from "./switcher";
 
 const POLL_MS = 4000;
 
@@ -102,6 +103,7 @@ function Bubble({
             <div className="msg-author">
               <span>{m.author.name}</span>
               {!m.author.organizer && m.author.badge && <span className="msg-badge">{m.author.badge}</span>}
+              {inChallenges(m.author.challenges) && <span className="msg-badge">{inChallenges(m.author.challenges)}</span>}
             </div>
           )}
           {m.replyTo && (
@@ -154,7 +156,7 @@ function Bubble({
   );
 }
 
-export function Chat({ state }: { state: State }) {
+export function Chat({ state, me, open, go }: { state: State; me: Me; open?: (enrollmentId: number) => void; go: (s: Screen) => void }) {
   const base = `/enrollments/${state.enrollmentId}/chat`;
   const [msgs, setMsgs] = useState<ChatMessage[] | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -346,6 +348,7 @@ export function Chat({ state }: { state: State }) {
 
   return (
     <div className="page chat-page" style={{ paddingBottom: pad }}>
+      <ChallengeSwitch me={me} current={state.enrollmentId} open={open} go={go} />
       <header className="chat-head">
         <IconTile icon="users" tone="rank" />
         <div>

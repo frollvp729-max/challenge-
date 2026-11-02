@@ -207,6 +207,32 @@ export async function sameDayLeaderboard(e: EnrollmentFull, now = new Date()) {
   return { day: n, rows: rankRows(rows, e.id).map(({ createdAt: _c, ...r }) => r) };
 }
 
+/**
+ * В скольких челленджах человек участвует сейчас (идущие и будущие круги). Названия другим не показываем.
+ * Каждый челлендж считается один раз, даже если в нём несколько кругов.
+ */
+export async function activeChallengeCounts(userIds: number[], now = new Date()): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  if (!userIds.length) return out;
+  const list = await prisma.enrollment.findMany({
+    where: { userId: { in: [...new Set(userIds)] }, status: "ACTIVE" },
+    select: {
+      userId: true,
+      startDate: true,
+      user: { select: { timezone: true } },
+      stream: { select: { challengeId: true, challenge: { select: { durationDays: true } } } },
+    },
+  });
+  const sets = new Map<number, Set<number>>();
+  for (const e of list) {
+    if (currentDayOf(e, now) > e.stream.challenge.durationDays) continue;
+    if (!sets.has(e.userId)) sets.set(e.userId, new Set());
+    sets.get(e.userId)!.add(e.stream.challengeId);
+  }
+  for (const [u, set] of sets) out.set(u, set.size);
+  return out;
+}
+
 export function displayNameOf(u: Pick<User, "displayName" | "firstName" | "username">) {
   return u.displayName || u.firstName || (u.username ? `@${u.username}` : "Участник");
 }

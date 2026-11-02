@@ -468,3 +468,37 @@ test("админка: добавить бесплатно, изменить и �
     await prisma.$disconnect();
   }
 });
+
+test("в рейтинге и чате видно, в скольких челленджах человек, без названий", { skip: !process.env.DATABASE_URL }, async () => {
+  const { buildApp } = await import("./app.js");
+  const { prisma } = await import("./lib/db.js");
+  const { grantAccess } = await import("./services/enrollments.js");
+  const app = await buildApp();
+  const tg = 960000000 + Math.floor(Math.random() * 1000000);
+  const h = { "x-dev-user": String(tg) };
+  const [a, b, c] = await prisma.challenge.findMany({ where: { status: "ACTIVE" }, orderBy: { id: "asc" }, take: 3 });
+  try {
+    const u = await prisma.user.create({ data: { telegramId: BigInt(tg), displayName: "Счётчик", onboarded: true, timezone: "UTC" } });
+    const ea = await grantAccess(u.id, a.id, "admin", new Date(), { startToday: true });
+    await grantAccess(u.id, b.id, "admin", new Date(), { startToday: true });
+    // отключённое участие не считается
+    const ec = await grantAccess(u.id, c.id, "admin", new Date(), { startToday: true });
+    await prisma.enrollment.update({ where: { id: ec.enrollment.id }, data: { status: "CANCELLED" } });
+
+    const me = (await app.inject({ method: "GET", url: "/api/me", headers: h })).json();
+    assert.equal(me.enrollments.length, 2);
+    assert.equal(me.enrollments[0].durationDays > 0, true);
+
+    const board = (await app.inject({ method: "GET", url: `/api/enrollments/${ea.enrollment.id}/leaderboard`, headers: h })).json();
+    const row = board.top.find((r: any) => r.isMe);
+    assert.equal(row.challenges, 2);
+    assert.equal(JSON.stringify(row).includes(b.title), false);
+
+    const msg = (await app.inject({ method: "POST", url: `/api/enrollments/${ea.enrollment.id}/chat`, headers: h, payload: { text: "Я в двух челленджах" } })).json();
+    assert.equal(msg.message.author.challenges, 2);
+  } finally {
+    await prisma.user.deleteMany({ where: { telegramId: BigInt(tg) } });
+    await app.close();
+    await prisma.$disconnect();
+  }
+});

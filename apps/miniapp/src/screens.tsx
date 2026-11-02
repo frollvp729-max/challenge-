@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { api, type CatalogItem, type DayReport, type DayState, type DayTask, type LeaderboardData, type LeaderRow, type Me, type State, type User } from "./api";
 import type { Screen } from "./App";
 import { Avatar, Icon, IconTile, REWARD_ICONS, type IconName, type Tone } from "./icons";
-import { alertMsg, compressImage, countdownParts, GOALS, haptic, humanDate, openTgLink, plural, tomorrowIso } from "./util";
+import { alertMsg, compressImage, countdownParts, GOALS, haptic, humanDate, inChallenges, openTgLink, plural, tomorrowIso } from "./util";
+import { ChallengeSwitch, Ring } from "./switcher";
 import { drawCertificate } from "./certificate";
 import { ChatCard } from "./chat";
 
@@ -33,33 +34,6 @@ function Header({ title, subtitle, onBack }: { title: string; subtitle?: string;
         {subtitle && <p className="subtitle">{subtitle}</p>}
       </div>
     </header>
-  );
-}
-
-function Ring({ value, max, size = 96, stroke = 9 }: { value: number; max: number; size?: number; stroke?: number }) {
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const p = Math.min(1, Math.max(0, value / max));
-  const mid = size / 2;
-  return (
-    <div className="ring" style={{ width: size, height: size }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle className="ring-track" cx={mid} cy={mid} r={r} strokeWidth={stroke} fill="none" />
-        <circle
-          className="ring-fill"
-          cx={mid}
-          cy={mid}
-          r={r}
-          strokeWidth={stroke}
-          fill="none"
-          strokeLinecap="round"
-          strokeDasharray={c}
-          strokeDashoffset={c * (1 - p)}
-          transform={`rotate(-90 ${mid} ${mid})`}
-        />
-      </svg>
-      <div className="ring-label">{Math.round(p * 100)}%</div>
-    </div>
   );
 }
 
@@ -167,29 +141,6 @@ function greeting() {
 
 // ---------------- Главный экран ----------------
 
-/** Переключатель между челленджами участника (если их несколько) */
-function Switcher({ me, current, open, go }: { me: Me; current: number; open?: (id: number) => void; go: (s: Screen) => void }) {
-  if (me.enrollments.length < 2 || !open) return null;
-  return (
-    <div className="switcher" role="tablist" aria-label="Мои челленджи">
-      {me.enrollments.map((e) => (
-        <button
-          key={e.id}
-          role="tab"
-          aria-selected={e.id === current}
-          className={`switch${e.id === current ? " on" : ""}`}
-          onClick={() => e.id !== current && open(e.id)}
-        >
-          {e.challengeTitle}
-        </button>
-      ))}
-      <button className="switch add" onClick={() => go("catalog")} aria-label="Все челленджи">
-        <Icon name="catalog" size={16} weight="bold" />
-      </button>
-    </div>
-  );
-}
-
 export function Home({ state, setState, go, me, open }: Props) {
   const ch = state.challenge;
   const s = state.score;
@@ -216,7 +167,7 @@ export function Home({ state, setState, go, me, open }: Props) {
           <Icon name="star" size={16} weight="fill" /> {s.points}
         </button>
       </div>
-      <Switcher me={me} current={state.enrollmentId} open={open} go={go} />
+      <ChallengeSwitch me={me} current={state.enrollmentId} open={open} go={go} />
 
       {state.phase === "upcoming" ? (
         <>
@@ -401,7 +352,7 @@ function TaskCard({ task, day, total }: { task: DayTask; day: number; total: num
   );
 }
 
-export function Today({ state, setState, go }: Props) {
+export function Today({ state, setState, go, me, open }: Props) {
   const task = state.todayTask;
   const report = state.todayReport;
   const [checked, setChecked] = useState<string[]>(report?.checklistDone ?? []);
@@ -413,6 +364,7 @@ export function Today({ state, setState, go }: Props) {
   if (state.phase !== "running" || !task) {
     return (
       <div className="page">
+        <ChallengeSwitch me={me} current={state.enrollmentId} open={open} go={go} />
         <Header title="Задание" onBack={() => go("home")} />
         <div className="card muted">{state.phase === "upcoming" ? "Челлендж ещё не начался." : "Задание дня пока не заполнено."}</div>
       </div>
@@ -467,6 +419,7 @@ export function Today({ state, setState, go }: Props) {
 
   return (
     <div className="page">
+      <ChallengeSwitch me={me} current={state.enrollmentId} open={open} go={go} />
       <Header title="Задание дня" onBack={() => go("home")} />
       <TaskCard task={task} day={state.day} total={ch.durationDays} />
 
@@ -580,7 +533,7 @@ const LEGEND: Array<[DayState, string]> = [
   ["saved", "серия спасена"],
 ];
 
-export function Progress({ state }: Props) {
+export function Progress({ state, me, open: openChallenge, go }: Props) {
   const [open, setOpen] = useState<{ day: DayTask | null; report: DayReport | null; n: number } | null>(null);
   const s = state.score;
   const ch = state.challenge;
@@ -594,6 +547,7 @@ export function Progress({ state }: Props) {
   };
   return (
     <div className="page tabs">
+      <ChallengeSwitch me={me} current={state.enrollmentId} open={openChallenge} go={go} />
       <Header title="Мой прогресс" subtitle={ch.title} />
       <div className="stats">
         <Tile icon="done" tone="good" value={`${s.doneCount}/${ch.durationDays}`} label="выполнено" />
@@ -666,6 +620,7 @@ function Podium({ rows }: { rows: LeaderRow[] }) {
           )}
           <Avatar name={r.name} photo={r.photoUrl} size={r.rank === 1 ? 64 : 52} />
           <div className="podium-name">{r.name}</div>
+          {inChallenges(r.challenges) && <div className="podium-sub">{inChallenges(r.challenges)}</div>}
           <div className="podium-points">{r.points}</div>
           <div className="podium-stand">{r.rank}</div>
         </div>
@@ -674,7 +629,7 @@ function Podium({ rows }: { rows: LeaderRow[] }) {
   );
 }
 
-export function Leaderboard({ state }: Props) {
+export function Leaderboard({ state, me, open, go }: Props) {
   const [data, setData] = useState<LeaderboardData | null>(null);
   const [mode, setMode] = useState<"all" | "day">("all");
   useEffect(() => {
@@ -685,6 +640,7 @@ export function Leaderboard({ state }: Props) {
   const total = view?.total ?? 0;
   return (
     <div className="page tabs with-pin">
+      <ChallengeSwitch me={me} current={state.enrollmentId} open={open} go={go} />
       <Header
         title="Рейтинг"
         subtitle={
@@ -723,7 +679,11 @@ export function Leaderboard({ state }: Props) {
                   <Avatar name={r.name} photo={r.photoUrl} size={36} />
                   <span className="board-name">
                     {r.name}
-                    {mode === "all" && <span className="board-day">{r.finished ? "прошёл 30 дней" : `день ${r.day}`}</span>}
+                    {(mode === "all" || inChallenges(r.challenges)) && (
+                      <span className="board-day">
+                        {[mode === "all" ? (r.finished ? "прошёл 30 дней" : `день ${r.day}`) : "", inChallenges(r.challenges)].filter(Boolean).join(" · ")}
+                      </span>
+                    )}
                   </span>
                   <span className="board-streak">
                     <Icon name="fire" size={15} weight="fill" /> {r.currentStreak}
@@ -752,10 +712,11 @@ export function Leaderboard({ state }: Props) {
 
 // ---------------- Награды ----------------
 
-export function Rewards({ state }: Props) {
+export function Rewards({ state, me, open, go }: Props) {
   const earned = state.rewards.filter((r) => r.earned).length;
   return (
     <div className="page tabs">
+      <ChallengeSwitch me={me} current={state.enrollmentId} open={open} go={go} />
       <Header title="Награды" subtitle={`Получено ${earned} из ${state.rewards.length}`} />
       <div className="badges">
         {state.rewards.map((r) => {
@@ -809,9 +770,10 @@ function RichText({ text }: { text: string }) {
   );
 }
 
-export function Rules({ state, go }: Props) {
+export function Rules({ state, me, open, go }: Props) {
   return (
     <div className="page">
+      <ChallengeSwitch me={me} current={state.enrollmentId} open={open} go={go} />
       <Header title="Правила" subtitle={state.challenge.title} onBack={() => go("home")} />
       <section className="card">
         {state.challenge.rules ? <RichText text={state.challenge.rules} /> : <p className="muted">Правила скоро появятся.</p>}
@@ -1033,7 +995,7 @@ export function Catalog({ current, onOpen }: { current?: number; onOpen?: (enrol
 
 // ---------------- Финал и сертификат ----------------
 
-export function Final({ state, me, go }: Props) {
+export function Final({ state, me, go, open }: Props) {
   const ch = state.challenge;
   const s = state.score;
   const [cert, setCert] = useState<{ url: string; blob: Blob } | null>(null);
@@ -1068,6 +1030,7 @@ export function Final({ state, me, go }: Props) {
 
   return (
     <div className="page tabs">
+      <ChallengeSwitch me={me} current={state.enrollmentId} open={open} go={go} />
       <div className="intro">
         <IconTile icon="trophy" tone="star" size="lg" />
         <h1 className="title">Челлендж завершён</h1>
