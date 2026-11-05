@@ -1701,3 +1701,166 @@ textarea::placeholder {
   line-height: 1.4;
   padding: 14px 16px;
 }
+
+/* ================= Сайт в браузере: вход ================= */
+
+.login {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+}
+.login-main {
+  width: 100%;
+  max-width: 440px;
+}
+.login-card .muted {
+  margin: 6px 0 16px;
+}
+a.btn {
+  text-decoration: none;
+}
+.btn.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.login-error {
+  color: var(--bad);
+  font-weight: 600;
+}
+.login-wait {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--rank-soft);
+  font-size: 14px;
+  font-weight: 600;
+}
+.dot-pulse {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dot-pulse 1.2s ease-in-out infinite;
+}
+@keyframes dot-pulse {
+  50% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+}
+.login-qr {
+  display: none;
+  width: 280px;
+  text-align: center;
+}
+.login-qr img {
+  width: 200px;
+  height: 200px;
+  margin: 14px auto 4px;
+  padding: 12px;
+  border-radius: 22px;
+  background: #fff;
+  box-sizing: content-box;
+}
+/* QR нужен на ПК и планшете: на телефоне человек и так нажмёт кнопку */
+@media (min-width: 768px) {
+  .login {
+    align-items: stretch;
+    align-content: center;
+    flex-wrap: wrap;
+  }
+  .login-main {
+    align-self: center;
+  }
+  .login-qr {
+    display: block;
+    align-self: flex-end;
+    margin-bottom: 12px;
+  }
+}
+
+/* Боковые элементы меню видны только на широком экране */
+.tabbar-brand,
+.tab-logout {
+  display: none;
+}
+
+/* Мышь: подсветка при наведении */
+@media (hover: hover) {
+  .btn:hover:not(:disabled) {
+    filter: brightness(1.06);
+  }
+  .btn-primary:hover:not(:disabled) {
+    filter: none;
+    background: #1e293b;
+  }
+  .tab:hover {
+    color: var(--text);
+  }
+  .row:hover {
+    background: rgba(255, 255, 255, 0.35);
+  }
+}
+
+/* ================= Компьютер: меню слева ================= */
+
+@media (min-width: 1100px) {
+  .tabbar {
+    top: 24px;
+    bottom: 24px;
+    left: max(24px, calc(50% - 280px - 32px - 232px));
+    right: auto;
+    width: 232px;
+    max-width: none;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+  }
+  .tab {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    font-size: 15px;
+    border-radius: 18px;
+  }
+  .tabbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px 18px;
+    font: 700 19px/1 var(--font);
+    letter-spacing: var(--tracking);
+  }
+  .tab-logout {
+    display: flex;
+    margin-top: auto;
+  }
+  .page {
+    padding-top: 32px;
+  }
+  .page.tabs {
+    padding-bottom: 48px;
+  }
+  .pin {
+    bottom: 24px;
+  }
+  .page.with-pin {
+    padding-bottom: 112px;
+  }
+}
+@media (max-width: 1099px) {
+  .tabbar.desk-only {
+    display: none;
+  }
+}

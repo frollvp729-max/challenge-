@@ -7,6 +7,7 @@ import type { User } from "@prisma/client";
 import { prisma } from "../lib/db.js";
 import { config } from "../config.js";
 import { validateInitData } from "../lib/telegramAuth.js";
+import { verifyWebSession } from "../lib/webAuth.js";
 import { isValidTimezone } from "../lib/dates.js";
 import {
   activeChallengeCounts,
@@ -66,6 +67,13 @@ export function imageExt(mime: string): string | null {
 
 async function authenticate(req: FastifyRequest): Promise<User> {
   const auth = req.headers.authorization ?? "";
+  // Сайт в обычном браузере: токен, выданный после входа через бота
+  if (auth.startsWith("web ")) {
+    const id = verifyWebSession(auth.slice(4), config.botToken);
+    const user = id ? await prisma.user.findUnique({ where: { id } }) : null;
+    if (!user) throw new HttpError(401, "Войдите через Telegram");
+    return user;
+  }
   let tg: { id: number; username?: string; first_name?: string; last_name?: string; photo_url?: string } | null = null;
   if (auth.startsWith("tma ")) {
     tg = validateInitData(auth.slice(4), config.botToken);

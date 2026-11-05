@@ -3,6 +3,7 @@ import { config } from "../config.js";
 import { prisma } from "../lib/db.js";
 import { esc, introMessage, openAppKeyboard, paidMessage, priceMessage } from "./messages.js";
 import { grantAccess, joinStartDate, primaryEnrollment } from "../services/enrollments.js";
+import { cancelLoginCode, confirmLoginCode, isLoginCodeOpen } from "../lib/webAuth.js";
 
 export const bot: Bot | null = config.botToken ? new Bot(config.botToken) : null;
 
@@ -38,6 +39,16 @@ export async function sendTo(
   }
 }
 
+/** Имя бота без @: из настроек, иначе то, что вернул Telegram при запуске */
+export function botUsername(): string {
+  if (config.botUsername) return config.botUsername;
+  try {
+    return bot?.botInfo.username ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export function botApi(): Api | null {
   return bot?.api ?? null;
 }
@@ -67,6 +78,23 @@ export function setupBot() {
     const user = await upsertFromCtx(ctx.from);
     // /start c_<slug> — диплинк на конкретный челлендж
     const payload = ctx.match?.trim() ?? "";
+    // /start login_<код> — вход на сайт в обычном браузере
+    if (payload.startsWith("login_")) {
+      const code = payload.slice(6);
+      if (!isLoginCodeOpen(code)) {
+        await ctx.reply("Ссылка для входа устарела. Нажмите «Войти через Telegram» на сайте ещё раз.");
+        return;
+      }
+      const host = config.publicUrl.replace(/^https?:\/\//, "");
+      await ctx.reply(
+        `Вход на сайт <b>${esc(host)}</b> под вашим аккаунтом Telegram.\n\nНажмите «Войти», если это вы открыли сайт. Если нет, нажмите «Отмена».`,
+        {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard().text("Войти", `weblogin:${code}`).text("Отмена", `webcancel:${code}`),
+        },
+      );
+      return;
+    }
     const slug = payload.startsWith("c_") ? payload.slice(2) : undefined;
     const enrollment = await primaryEnrollment(user.id);
     if (enrollment && !slug) {
@@ -120,6 +148,21 @@ export function setupBot() {
       return;
     }
     await ctx.reply(m.text, { parse_mode: "HTML", reply_markup: m.keyboard });
+  });
+
+  bot.callbackQuery(/^weblogin:(.+)$/, async (ctx) => {
+    const user = await upsertFromCtx(ctx.from);
+    const ok = confirmLoginCode(ctx.match[1], user.id);
+    await ctx.answerCallbackQuery(ok ? "Готово" : "Ссылка устарела");
+    await ctx
+      .editMessageText(ok ? "Готово! Вернитесь на сайт: вход выполнен." : "Ссылка для входа устарела. Нажмите «Войти через Telegram» на сайте ещё раз.")
+      .catch(() => undefined);
+  });
+
+  bot.callbackQuery(/^webcancel:(.+)$/, async (ctx) => {
+    cancelLoginCode(ctx.match[1]);
+    await ctx.answerCallbackQuery("Вход отменён");
+    await ctx.editMessageText("Вход отменён.").catch(() => undefined);
   });
 
   bot.command("app", async (ctx) => {

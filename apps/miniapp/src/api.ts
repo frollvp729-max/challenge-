@@ -1,13 +1,53 @@
 const tg = () => window.Telegram?.WebApp;
 
+/** Открыто внутри Telegram (Mini App), а не в обычном браузере */
+export const inTelegram = () => Boolean(tg()?.initData);
+
 /** В браузере без Telegram можно открыть /app/?dev=<telegramId> (если на сервере DEV_AUTH=1) */
 const devUser = new URLSearchParams(location.search).get("dev");
+
+// Сайт в обычном браузере: токен сессии после входа через бота
+const SESSION_KEY = "webSession";
+export function webSession(): string | null {
+  try {
+    return localStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+export function setWebSession(token: string | null) {
+  try {
+    if (token) localStorage.setItem(SESSION_KEY, token);
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* без хранилища вход продержится до перезагрузки страницы */
+  }
+  memorySession = token;
+}
+let memorySession: string | null = null;
+
+/** Выйти на сайте (в Telegram выход не нужен) */
+export function logout() {
+  setWebSession(null);
+  location.reload();
+}
+
+/** Нужен экран входа: обычный браузер и нет сессии */
+export const needsLogin = () => !inTelegram() && !devUser && !(webSession() ?? memorySession);
 
 function headers(): Record<string, string> {
   const initData = tg()?.initData;
   if (initData) return { authorization: `tma ${initData}` };
   if (devUser) return { "x-dev-user": devUser };
+  const session = webSession() ?? memorySession;
+  if (session) return { authorization: `web ${session}` };
   return {};
+}
+
+/** Сессия сайта истекла или недействительна: приложение покажет экран входа */
+let onUnauthorized: () => void = () => undefined;
+export function setUnauthorizedHandler(fn: () => void) {
+  onUnauthorized = fn;
 }
 
 export class ApiError extends Error {
@@ -18,6 +58,10 @@ export class ApiError extends Error {
 
 async function handle<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && !inTelegram() && !devUser) {
+    setWebSession(null);
+    onUnauthorized();
+  }
   if (!res.ok) throw new ApiError(res.status, data.error ?? "Ошибка сети");
   return data as T;
 }

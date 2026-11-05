@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type CatalogItem, type DayReport, type DayState, type DayTask, type LeaderboardData, type LeaderRow, type Me, type State, type User } from "./api";
+import { api, inTelegram, logout, type CatalogItem, type DayReport, type DayState, type DayTask, type LeaderboardData, type LeaderRow, type Me, type State, type User } from "./api";
 import type { Screen } from "./App";
 import { Avatar, Icon, IconTile, REWARD_ICONS, type IconName, type Tone } from "./icons";
 import { alertMsg, compressImage, countdownParts, GOALS, haptic, humanDate, inChallenges, openTgLink, plural, tomorrowIso } from "./util";
@@ -21,7 +21,7 @@ const nameOf = (u: User) => u.displayName || u.firstName || (u.username ? `@${u.
 
 function Header({ title, subtitle, onBack }: { title: string; subtitle?: string; onBack?: () => void }) {
   // В Telegram работает системная кнопка «Назад», в браузере показываем свою
-  const inTg = Boolean(window.Telegram?.WebApp.initData);
+  const inTg = inTelegram();
   return (
     <header className="header">
       {!inTg && onBack && (
@@ -882,6 +882,7 @@ export function Profile({ me, go, onSaved }: Props & { onSaved: (u: User) => voi
       </section>
       <div className="list">
         <ListRow icon="rules" label="Правила челленджа" onClick={() => go("rules")} />
+        {!inTelegram() && <ListRow icon="logout" tone="bad" label="Выйти с сайта" onClick={logout} />}
       </div>
       <p className="muted small center-text">Часовой пояс: {me.user.timezone}. Напоминания приходят по нему.</p>
     </div>
