@@ -14,7 +14,7 @@ import { webAuthRoutes } from "./routes/webAuth.js";
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export async function buildApp() {
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" }, bodyLimit: 1024 * 1024 });
+  const app = Fastify({ trustProxy: true, logger: { level: process.env.LOG_LEVEL ?? "info" }, bodyLimit: 1024 * 1024 });
   await app.register(cors, { origin: true });
   await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 

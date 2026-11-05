@@ -89,7 +89,7 @@ export async function tickBroadcasts() {
       : b.audience === "challenge" && b.challengeId
         ? { enrollments: { some: { stream: { challengeId: b.challengeId } } } }
         : {};
-  const users = await prisma.user.findMany({ where: { ...where, botBlocked: false }, select: { telegramId: true } });
+  const users = await prisma.user.findMany({ where: { ...where, botBlocked: false, telegramId: { not: null } }, select: { telegramId: true } });
   const kb = b.buttonText ? openAppKeyboard(b.buttonText) : undefined;
   let sent = 0;
   let failed = 0;

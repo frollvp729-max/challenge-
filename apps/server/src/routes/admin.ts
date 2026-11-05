@@ -10,6 +10,8 @@ import { sendTo } from "../bot/index.js";
 import { esc, openAppKeyboard, paidMessage } from "../bot/messages.js";
 import { imageExt, saveUpload } from "./miniapp.js";
 import { CHAT_TEXT_MAX, chatInclude, loadMessages, serializeMessages } from "../services/chat.js";
+import { getCardSettings, saveCardSettings } from "../services/cardPay.js";
+import { normalizeEmail } from "../lib/webAuth.js";
 
 const CHALLENGE_FIELDS = [
   "slug", "title", "tagline", "intro", "rules", "coverUrl", "status", "durationDays", "priceRub", "paymentMode",
@@ -29,7 +31,14 @@ const NULLABLE = new Set(["startDate", "coverUrl", "tributeLink", "tributeSubscr
  */
 async function userByWho(raw: unknown) {
   const who = String(raw ?? "").trim().replace(/^https?:\/\/t\.me\//, "").replace(/^@/, "");
-  if (!who) throw Object.assign(new Error("Укажите @username или Telegram ID"), { statusCode: 400 });
+  if (!who) throw Object.assign(new Error("Укажите @username, Telegram ID или почту"), { statusCode: 400 });
+  // аккаунт сайта по почте
+  if (who.includes("@")) {
+    const email = normalizeEmail(who);
+    const u = email ? await prisma.user.findUnique({ where: { email } }) : null;
+    if (!u) throw Object.assign(new Error(`На сайте нет аккаунта с почтой ${who}`), { statusCode: 400 });
+    return u;
+  }
   if (/^\d+$/.test(who)) {
     if (who.length < 5 || who.length > 15) throw Object.assign(new Error(`Telegram ID ${who} не похож на настоящий: это число из 5–15 цифр`), { statusCode: 400 });
     const tgId = BigInt(who);
@@ -68,6 +77,7 @@ const SOURCE_LABELS: Record<string, string> = {
   free: "бесплатный челлендж",
   tribute_product: "разовая покупка",
   tribute_subscription: "подписка",
+  card: "перевод на карту",
 };
 
 const json = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? String(v) : v)));
@@ -263,7 +273,8 @@ export async function adminRoutes(app: FastifyInstance) {
       out.push({
         enrollmentId: e.id,
         userId: e.userId,
-        telegramId: String(e.user.telegramId),
+        telegramId: e.user.telegramId === null ? null : String(e.user.telegramId),
+        email: e.user.email,
         username: e.user.username,
         name: displayNameOf(e.user),
         displayName: e.user.displayName,
@@ -314,7 +325,7 @@ export async function adminRoutes(app: FastifyInstance) {
       created: res.created,
       startDate: res.startDate,
       name: displayNameOf(user),
-      telegramId: String(user.telegramId),
+      telegramId: user.telegramId === null ? null : String(user.telegramId),
       seenBot,
       notified,
     };
@@ -384,9 +395,9 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ---------- Организаторы: бесплатный доступ ко всем челленджам ----------
-  const serializeOrganizer = (u: { id: number; telegramId: bigint; username: string | null; displayName: string | null; firstName: string | null }) => ({
+  const serializeOrganizer = (u: { id: number; telegramId: bigint | null; username: string | null; displayName: string | null; firstName: string | null }) => ({
     id: u.id,
-    telegramId: String(u.telegramId),
+    telegramId: u.telegramId === null ? null : String(u.telegramId),
     username: u.username,
     name: displayNameOf(u),
   });
@@ -500,4 +511,68 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get("/payments", async () =>
     json(await prisma.payment.findMany({ orderBy: { id: "desc" }, take: 200, include: { user: true } })),
   );
+
+  // ---------- Оплата переводом на карту ----------
+  app.get("/card-settings", async () => getCardSettings());
+  app.put("/card-settings", async (req) => {
+    await saveCardSettings((req.body ?? {}) as Record<string, string>);
+    return getCardSettings();
+  });
+
+  app.get("/card-payments", async () => {
+    const list = await prisma.cardPayment.findMany({
+      orderBy: [{ status: "asc" }, { id: "desc" }],
+      take: 200,
+      include: { user: true, challenge: { select: { title: true } } },
+    });
+    // сначала ожидающие подтверждения
+    list.sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending"));
+    return list.map((p) => ({
+      id: p.id,
+      status: p.status,
+      amount: p.amount,
+      note: p.note,
+      createdAt: p.createdAt,
+      decidedAt: p.decidedAt,
+      challenge: p.challenge.title,
+      name: displayNameOf(p.user),
+      email: p.user.email,
+      telegramId: p.user.telegramId === null ? null : String(p.user.telegramId),
+      username: p.user.username,
+    }));
+  });
+
+  /** Подтвердить перевод: открыть доступ, как после оплаты */
+  app.post<{ Params: { id: string } }>("/card-payments/:id/approve", async (req) => {
+    const p = await prisma.cardPayment.findUnique({ where: { id: Number(req.params.id) }, include: { user: true, challenge: true } });
+    if (!p) throw Object.assign(new Error("Заявка не найдена"), { statusCode: 404 });
+    if (p.status === "approved") return { ok: true };
+    const res = await grantAccess(p.userId, p.challengeId, "card");
+    await prisma.cardPayment.update({ where: { id: p.id }, data: { status: "approved", decidedAt: new Date() } });
+    await prisma.payment.create({
+      data: {
+        userId: p.userId,
+        event: "card_transfer",
+        dedupKey: `card_transfer:${p.id}`,
+        amount: p.amount * 100,
+        currency: "rub",
+        challengeId: p.challengeId,
+        raw: { cardPaymentId: p.id, note: p.note } as Prisma.InputJsonValue,
+      },
+    }).catch(() => undefined);
+    if (res.created) {
+      const m = paidMessage(res.startDate, p.user.timezone);
+      await sendTo(p.user.telegramId, [`Оплата получена: «${esc(p.challenge.title)}».`, ...m.text.split("\n").slice(2)].join("\n"), m.keyboard);
+    }
+    return { ok: true, enrollmentId: res.enrollment.id };
+  });
+
+  app.post<{ Params: { id: string } }>("/card-payments/:id/reject", async (req) => {
+    const p = await prisma.cardPayment.findUnique({ where: { id: Number(req.params.id) }, include: { user: true, challenge: true } });
+    if (!p) throw Object.assign(new Error("Заявка не найдена"), { statusCode: 404 });
+    if (p.status !== "pending") throw Object.assign(new Error("Заявка уже обработана"), { statusCode: 400 });
+    await prisma.cardPayment.update({ where: { id: p.id }, data: { status: "rejected", decidedAt: new Date() } });
+    await sendTo(p.user.telegramId, `Мы не нашли ваш перевод за «${esc(p.challenge.title)}». Если вы оплатили, напишите организатору.`);
+    return { ok: true };
+  });
 }

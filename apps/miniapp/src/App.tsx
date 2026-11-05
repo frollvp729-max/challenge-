@@ -137,7 +137,7 @@ export function App() {
   if (error) return <div className="center muted">{error}</div>;
   if (!me) return <div className="center muted">Загрузка…</div>;
   if (!me.user.onboarded) return <Onboarding user={me.user} onDone={(u) => setMe({ ...me, user: u })} />;
-  if (!state) return <Catalog onOpen={(id) => void open(id)} />;
+  if (!state) return <Catalog onOpen={(id) => void open(id)} user={me.user} onSaved={(u) => setMe({ ...me, user: u })} />;
 
   const props = { state, setState, go, me, open: switchTo };
   const effective = screen === "home" && state.phase === "finished" ? "final" : screen;

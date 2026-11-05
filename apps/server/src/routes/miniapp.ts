@@ -7,7 +7,9 @@ import type { User } from "@prisma/client";
 import { prisma } from "../lib/db.js";
 import { config } from "../config.js";
 import { validateInitData } from "../lib/telegramAuth.js";
-import { verifyWebSession } from "../lib/webAuth.js";
+import { createLoginCode, hashPassword, normalizeEmail, verifyWebSession } from "../lib/webAuth.js";
+import { cardEnabled, getCardSettings } from "../services/cardPay.js";
+import { botUsername } from "../bot/index.js";
 import { isValidTimezone } from "../lib/dates.js";
 import {
   activeChallengeCounts,
@@ -69,7 +71,7 @@ async function authenticate(req: FastifyRequest): Promise<User> {
   const auth = req.headers.authorization ?? "";
   // Сайт в обычном браузере: токен, выданный после входа через бота
   if (auth.startsWith("web ")) {
-    const id = verifyWebSession(auth.slice(4), config.botToken);
+    const id = verifyWebSession(auth.slice(4), config.sessionSecret);
     const user = id ? await prisma.user.findUnique({ where: { id } }) : null;
     if (!user) throw new HttpError(401, "Войдите через Telegram");
     return user;
@@ -106,7 +108,9 @@ async function loadEnrollment(user: User, id: number): Promise<EnrollmentFull> {
 function serializeUser(u: User) {
   return {
     id: u.id,
-    telegramId: String(u.telegramId),
+    telegramId: u.telegramId === null ? null : String(u.telegramId),
+    /** Почта для входа на сайте (если задана) */
+    email: u.email,
     username: u.username,
     firstName: u.firstName,
     photoUrl: u.photoUrl,
@@ -210,6 +214,10 @@ export async function miniappRoutes(app: FastifyInstance) {
       }),
     ]);
     const joined = new Map(enrollmentsByChallenge(mine).map((x) => [x.e.stream.challengeId, x]));
+    const card = await getCardSettings();
+    const pendingCard = new Set(
+      (await prisma.cardPayment.findMany({ where: { userId: user.id, status: "pending" }, select: { challengeId: true } })).map((p) => p.challengeId),
+    );
     const out = [];
     for (const ch of list) {
       const j = joined.get(ch.id);
@@ -226,9 +234,17 @@ export async function miniappRoutes(app: FastifyInstance) {
         nextStart: joinStartDate(ch, user.timezone),
         joined: j ? { enrollmentId: j.e.id, phase: j.phase, startDate: j.e.startDate } : null,
         draft: ch.status === "DRAFT",
+        /** Заявка «Я оплатил переводом» ждёт подтверждения организатора */
+        cardPending: pendingCard.has(ch.id),
       });
     }
-    return { challenges: out, botUsername: config.botUsername, organizer: user.isOrganizer };
+    return {
+      challenges: out,
+      botUsername: config.botUsername,
+      organizer: user.isOrganizer,
+      card: cardEnabled(card) ? card : null,
+      hasTelegram: user.telegramId !== null,
+    };
   });
 
   /** Организатор участвует в любом челлендже бесплатно; его 30 дней начинаются сегодня */
@@ -239,6 +255,50 @@ export async function miniappRoutes(app: FastifyInstance) {
     if (!ch || ch.status === "ARCHIVED") throw new HttpError(404, "Челлендж не найден");
     const res = await grantAccess(user.id, ch.id, "organizer", new Date(), { startToday: true });
     return { enrollmentId: res.enrollment.id };
+  });
+
+  /** «Я оплатил переводом на карту»: заявка уходит организатору в админку */
+  app.post<{ Params: { id: string } }>("/challenges/:id/card-payment", async (req) => {
+    const user = req.tgUser!;
+    const ch = await prisma.challenge.findUnique({ where: { id: Number(req.params.id) } });
+    if (!ch || ch.status !== "ACTIVE") throw new HttpError(404, "Челлендж не найден");
+    if (!cardEnabled(await getCardSettings())) throw new HttpError(400, "Оплата переводом пока не настроена");
+    const note = String(((req.body ?? {}) as { note?: string }).note ?? "").trim().slice(0, 200);
+    const open = await prisma.cardPayment.findFirst({ where: { userId: user.id, challengeId: ch.id, status: "pending" } });
+    if (open) {
+      await prisma.cardPayment.update({ where: { id: open.id }, data: { note: note || open.note } });
+      return { ok: true, id: open.id };
+    }
+    const p = await prisma.cardPayment.create({ data: { userId: user.id, challengeId: ch.id, amount: ch.priceRub, note } });
+    return { ok: true, id: p.id };
+  });
+
+  // ---------------- Аккаунт: сайт и Telegram ----------------
+
+  /** Подключить Telegram к аккаунту сайта: ссылка на бота, бот спросит подтверждение */
+  app.post("/account/telegram-link", async (req) => {
+    const user = req.tgUser!;
+    if (user.telegramId !== null) throw new HttpError(400, "Telegram уже подключён");
+    const bot = botUsername();
+    if (!bot) throw new HttpError(503, "Бот сейчас недоступен");
+    const code = createLoginCode(user.id);
+    return { code, url: `https://t.me/${bot}?start=login_${code}` };
+  });
+
+  /** Почта и пароль для входа на сайте (например, тем, кто начал в Telegram) */
+  app.post("/account/credentials", async (req) => {
+    const user = req.tgUser!;
+    const b = (req.body ?? {}) as { email?: string; password?: string };
+    const email = normalizeEmail(b.email);
+    const password = String(b.password ?? "");
+    if (!email) throw new HttpError(400, "Проверьте почту: похоже, в ней ошибка");
+    if (password.length < 6) throw new HttpError(400, "Пароль: не короче 6 символов");
+    const taken = await prisma.user.findUnique({ where: { email } });
+    if (taken && taken.id !== user.id) {
+      throw new HttpError(409, "Эта почта уже зарегистрирована на сайте. Войдите там под ней и подключите Telegram в профиле");
+    }
+    const updated = await prisma.user.update({ where: { id: user.id }, data: { email, passwordHash: hashPassword(password) } });
+    return { user: serializeUser(updated) };
   });
 
   app.get<{ Params: { id: string } }>("/enrollments/:id", async (req) => {
@@ -353,7 +413,7 @@ export async function miniappRoutes(app: FastifyInstance) {
     const file = await req.file();
     if (!file || file.mimetype !== "image/png") throw new HttpError(400, "Нужен PNG");
     const buf = await file.toBuffer();
-    if (!bot) return { ok: true, sent: false };
+    if (!bot || req.tgUser!.telegramId === null) return { ok: true, sent: false };
     const share = config.botUsername ? `\n\nПрисоединяйся: https://t.me/${config.botUsername}?start=c_${e.stream.challenge.slug}` : "";
     await bot.api.sendPhoto(Number(req.tgUser!.telegramId), new InputFile(buf, "certificate.png"), {
       caption: `Сертификат: «${e.stream.challenge.title}»${share}`,

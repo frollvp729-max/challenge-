@@ -24,6 +24,10 @@ export const config = {
   uploadsDir: process.env.UPLOADS_DIR ?? "./uploads",
   defaultTimezone: process.env.DEFAULT_TIMEZONE ?? "Europe/Moscow",
   schedulerEnabled: process.env.SCHEDULER !== "off",
+  /** Ключ подписи сессий сайта: токен бота, без него пароль админки */
+  get sessionSecret() {
+    return this.botToken || this.adminPassword;
+  },
   get webAppUrl() {
     return `${this.publicUrl}/app/`;
   },

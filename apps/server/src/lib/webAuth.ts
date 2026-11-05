@@ -14,6 +14,8 @@ export const SESSION_TTL_SEC = 90 * 24 * 3600;
 
 interface LoginRequest {
   expiresAt: number;
+  /** Подключение Telegram к уже открытому аккаунту сайта (id этого аккаунта) */
+  linkUserId?: number;
   /** id пользователя в нашей базе после подтверждения в боте */
   userId?: number;
 }
@@ -24,12 +26,12 @@ function purge(now = Date.now()) {
   for (const [code, r] of pending) if (r.expiresAt < now) pending.delete(code);
 }
 
-export function createLoginCode(): string {
+export function createLoginCode(linkUserId?: number): string {
   purge();
   // защита от переполнения памяти: самые старые коды уходят первыми
   while (pending.size >= MAX_PENDING) pending.delete(pending.keys().next().value!);
   const code = crypto.randomBytes(18).toString("base64url");
-  pending.set(code, { expiresAt: Date.now() + LOGIN_TTL_MS });
+  pending.set(code, { expiresAt: Date.now() + LOGIN_TTL_MS, linkUserId });
   return code;
 }
 
@@ -37,6 +39,11 @@ export function createLoginCode(): string {
 export function isLoginCodeOpen(code: string): boolean {
   const r = pending.get(code);
   return Boolean(r && r.expiresAt >= Date.now() && r.userId === undefined);
+}
+
+/** Для какого аккаунта сайта этот код подключает Telegram (undefined — обычный вход) */
+export function linkTargetOf(code: string): number | undefined {
+  return pending.get(code)?.linkUserId;
 }
 
 /** Бот подтвердил вход: привязать код к пользователю */
@@ -75,6 +82,46 @@ export function signWebSession(userId: number, botToken: string, ttlSec = SESSIO
   const body = `w1.${userId}.${exp}`;
   const sig = crypto.createHmac("sha256", sessionKey(botToken)).update(body).digest("base64url");
   return `${body}.${sig}`;
+}
+
+// ---------------- Аккаунт сайта: почта и пароль ----------------
+
+export function normalizeEmail(raw: unknown): string | null {
+  const email = String(raw ?? "").trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) && email.length <= 120 ? email : null;
+}
+
+/** scrypt с солью: s1$<соль>$<хеш> */
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, 32);
+  return ["s1", salt.toString("base64url"), hash.toString("base64url")].join("$");
+}
+
+export function checkPassword(password: string, stored: string | null): boolean {
+  if (!stored) return false;
+  const [v, saltStr, hashStr] = stored.split("$");
+  if (v !== "s1" || !saltStr || !hashStr) return false;
+  const expected = Buffer.from(hashStr, "base64url");
+  const actual = crypto.scryptSync(password, Buffer.from(saltStr, "base64url"), expected.length);
+  return crypto.timingSafeEqual(expected, actual);
+}
+
+/** Простое ограничение попыток входа: не больше limit за 15 минут на ключ (почта или IP) */
+const attempts = new Map<string, { count: number; until: number }>();
+export function tooManyAttempts(key: string, limit = 10): boolean {
+  const now = Date.now();
+  const a = attempts.get(key);
+  if (!a || a.until < now) {
+    if (attempts.size > 20000) attempts.clear();
+    attempts.set(key, { count: 1, until: now + 15 * 60 * 1000 });
+    return false;
+  }
+  a.count++;
+  return a.count > limit;
+}
+export function resetAttempts(key: string) {
+  attempts.delete(key);
 }
 
 export function verifyWebSession(token: string, botToken: string): number | null {

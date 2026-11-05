@@ -87,7 +87,10 @@ export type DayState = "done_proof" | "done" | "violated" | "missed" | "saved" |
 
 export interface User {
   id: number;
-  telegramId: string;
+  /** Пусто у аккаунта сайта, к которому не подключён Telegram */
+  telegramId: string | null;
+  /** Почта для входа на сайте, если задана */
+  email: string | null;
   username: string | null;
   firstName: string | null;
   photoUrl: string | null;
@@ -235,6 +238,16 @@ export interface CatalogItem {
   joined: { enrollmentId: number; phase: Phase; startDate: string } | null;
   /** Черновик: виден только организатору */
   draft: boolean;
+  /** Заявка «Я оплатил переводом» ждёт подтверждения */
+  cardPending: boolean;
+}
+
+/** Реквизиты для перевода на карту */
+export interface CardSettings {
+  number: string;
+  holder: string;
+  bank: string;
+  note: string;
 }
 
 export interface ChatMessage {

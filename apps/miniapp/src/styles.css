@@ -1710,14 +1710,13 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
   padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
 }
 .login-main {
   width: 100%;
   max-width: 440px;
 }
-.login-card .muted {
+.login-card .card-title + .muted {
   margin: 6px 0 16px;
 }
 a.btn {
@@ -1758,33 +1757,52 @@ a.btn {
 }
 .login-qr {
   display: none;
-  width: 280px;
   text-align: center;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--field-line);
 }
 .login-qr img {
-  width: 200px;
-  height: 200px;
-  margin: 14px auto 4px;
-  padding: 12px;
-  border-radius: 22px;
+  width: 168px;
+  height: 168px;
+  margin: 0 auto 6px;
+  padding: 10px;
+  border-radius: 20px;
   background: #fff;
   box-sizing: content-box;
 }
 /* QR нужен на ПК и планшете: на телефоне человек и так нажмёт кнопку */
 @media (min-width: 768px) {
-  .login {
-    align-items: stretch;
-    align-content: center;
-    flex-wrap: wrap;
-  }
-  .login-main {
-    align-self: center;
-  }
   .login-qr {
     display: block;
-    align-self: flex-end;
-    margin-bottom: 12px;
   }
+}
+.login-ask {
+  margin: 0 0 8px;
+  text-align: center;
+  font-weight: 650;
+}
+.seg-big button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 8px;
+  font-size: 15px;
+}
+.login-foot {
+  margin: 14px 2px 0;
+}
+input[type="email"],
+input[type="password"] {
+  font: inherit;
+  padding: 13px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--field-line);
+  background: var(--field);
+  color: var(--text);
+  width: 100%;
+  outline: none;
 }
 
 /* Боковые элементы меню видны только на широком экране */
@@ -1861,6 +1879,89 @@ a.btn {
 }
 @media (max-width: 1099px) {
   .tabbar.desk-only {
+    display: none;
+  }
+}
+
+/* ================= Оплата и аккаунт ================= */
+
+.chip-wait {
+  background: var(--rank-soft);
+  color: #1d7fb8;
+}
+.pay-card .card-head b {
+  font-size: 17px;
+}
+.pay-number {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--field-line);
+  border-radius: var(--radius-sm);
+  background: var(--field);
+  font: 700 20px/1.2 var(--font);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+.pay-number svg {
+  flex: none;
+  color: var(--text-2);
+}
+.pay-holder {
+  margin: 8px 2px 0;
+}
+.pay-amount {
+  margin: 12px 2px;
+}
+.account-card > .muted {
+  margin: 4px 0 6px;
+}
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+.account-row + .account-row {
+  border-top: 1px solid var(--field-line);
+}
+.account-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.account-text span {
+  font-size: 13px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btn-sm {
+  padding: 10px 14px;
+  font-size: 14px;
+}
+.account-form {
+  margin-top: 6px;
+}
+
+/* На широком экране шторка становится окном по центру */
+@media (min-width: 768px) {
+  .sheet {
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .sheet-body {
+    max-width: 520px;
+    border-radius: 28px;
+    padding-bottom: 20px;
+  }
+  .sheet-grip {
     display: none;
   }
 }

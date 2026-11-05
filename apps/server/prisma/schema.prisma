@@ -7,10 +7,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Участник (пользователь Telegram)
+/// Участник: аккаунт Telegram, аккаунт сайта (почта и пароль) или оба сразу
 model User {
   id          Int      @id @default(autoincrement())
-  telegramId  BigInt   @unique
+  /// Пусто у тех, кто зарегистрировался на сайте и ещё не подключил Telegram
+  telegramId  BigInt?  @unique
+  /// Вход на сайте без Telegram (почта хранится в нижнем регистре)
+  email        String? @unique
+  passwordHash String?
   username    String?
   firstName   String?
   lastName    String?
@@ -39,6 +43,7 @@ model User {
   subscriptions Subscription[]
   chatMessages  ChatMessage[]
   chatReads     ChatRead[]
+  cardPayments  CardPayment[]
 }
 
 enum ChallengeStatus {
@@ -104,6 +109,7 @@ model Challenge {
   days         ChallengeDay[]
   streams      Stream[]
   chatMessages ChatMessage[]
+  cardPayments CardPayment[]
   chatReads    ChatRead[]
 }
 
@@ -306,4 +312,28 @@ model ChatRead {
   lastReadId  Int       @default(0)
 
   @@id([userId, challengeId])
+}
+
+/// Настройки площадки из админки (например, реквизиты для перевода на карту)
+model Setting {
+  key   String @id
+  value String
+}
+
+/// Заявка «Я оплатил переводом на карту»: доступ открывается, когда организатор подтвердит
+model CardPayment {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challengeId Int
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  amount      Int
+  /// Что человек написал о переводе (имя отправителя, последние цифры карты)
+  note        String    @default("")
+  /// pending | approved | rejected
+  status      String    @default("pending")
+  createdAt   DateTime  @default(now())
+  decidedAt   DateTime?
+
+  @@index([status, createdAt])
 }
