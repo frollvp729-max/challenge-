@@ -5,7 +5,7 @@
 set -euo pipefail
 
 REPO_URL="${1:-https://github.com/frollvp729-max/challenge-.git}"
-DOMAIN="${2:-vitalprobiznes.ru}"
+DOMAIN="${2:-challengetyt.ru}"
 DIR=/opt/challenge-platform
 
 if [ "$(id -u)" -ne 0 ]; then
