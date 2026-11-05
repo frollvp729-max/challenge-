@@ -55,11 +55,11 @@ npm run build && npm start                       # http://localhost:3000/app/ и
 
 Тесты: `npm test` (подсчёт очков и серий; сквозной сценарий «оплата → отчёт → рейтинг» запускается, если задан `DATABASE_URL`).
 
-## Деплой на vitalprobiznes.ru
+## Деплой на challengetyt.ru
 
 Нужен VPS с Ubuntu или Debian (1 ГБ памяти хватит: если памяти меньше 2 ГБ, скрипт сам добавит подкачку для сборки) и домен, направленный на него.
 
-1. У регистратора домена создай A-записи `vitalprobiznes.ru` и `www` на IP сервера.
+1. У регистратора домена создай A-записи `challengetyt.ru` и `www` на IP сервера.
 2. Зайди на сервер (`ssh root@<IP сервера>`, пароль из письма хостера) и выполни одну команду:
 
 ```bash
@@ -75,8 +75,8 @@ curl -fsSL https://raw.githubusercontent.com/frollvp729-max/challenge-/main/depl
 ## Бот и Mini App в Telegram
 
 1. Бот уже создан: [@sugar_free_Bot](https://t.me/sugar_free_Bot). Его токен из @BotFather вводится только в скрипт установки на сервере.
-2. Кнопку меню «Челлендж», которая открывает Mini App `https://vitalprobiznes.ru/app/`, бот ставит сам при запуске. Команды `/start`, `/app`, `/help` и описание бота из активного челленджа тоже.
-3. По желанию: `/newapp` в @BotFather с адресом `https://vitalprobiznes.ru/app/` даст прямую ссылку вида `t.me/<бот>/<app>` для рекламы.
+2. Кнопку меню «Челлендж», которая открывает Mini App `https://challengetyt.ru/app/`, бот ставит сам при запуске. Команды `/start`, `/app`, `/help` и описание бота из активного челленджа тоже.
+3. По желанию: `/newapp` в @BotFather с адресом `https://challengetyt.ru/app/` даст прямую ссылку вида `t.me/<бот>/<app>` для рекламы.
 
 ## Переменные окружения
 

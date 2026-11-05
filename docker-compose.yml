@@ -24,7 +24,7 @@ services:
   caddy:
     image: caddy:2-alpine
     environment:
-      DOMAIN: ${DOMAIN:-vitalprobiznes.ru}
+      DOMAIN: ${DOMAIN:-challengetyt.ru}
     ports:
       - "80:80"
       - "443:443"
