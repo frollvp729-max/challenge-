@@ -3,15 +3,19 @@ import { config } from "../config.js";
 import { prisma } from "../lib/db.js";
 import { esc, introMessage, openAppKeyboard, paidMessage, priceMessage } from "./messages.js";
 import { grantAccess, joinStartDate, primaryEnrollment } from "../services/enrollments.js";
+import { cancelLoginCode, confirmLoginCode, isLoginCodeOpen, linkTargetOf } from "../lib/webAuth.js";
+import { AccountConflict, linkTelegram } from "../services/accounts.js";
 
 export const bot: Bot | null = config.botToken ? new Bot(config.botToken) : null;
 
 /** Отправка сообщения с учётом блокировки бота пользователем */
 export async function sendTo(
-  telegramId: bigint | number,
+  telegramId: bigint | number | null,
   text: string,
   keyboard?: InlineKeyboard,
 ): Promise<boolean> {
+  // аккаунт сайта без подключённого Telegram: писать некуда
+  if (telegramId === null) return false;
   if (!bot) {
     console.log(`[bot disabled] → ${telegramId}: ${text.split("\n")[0]}`);
     return true;
@@ -35,6 +39,16 @@ export async function sendTo(
     }
     console.error("sendTo failed", err);
     return false;
+  }
+}
+
+/** Имя бота без @: из настроек, иначе то, что вернул Telegram при запуске */
+export function botUsername(): string {
+  if (config.botUsername) return config.botUsername;
+  try {
+    return bot?.botInfo.username ?? "";
+  } catch {
+    return "";
   }
 }
 
@@ -67,6 +81,26 @@ export function setupBot() {
     const user = await upsertFromCtx(ctx.from);
     // /start c_<slug> — диплинк на конкретный челлендж
     const payload = ctx.match?.trim() ?? "";
+    // /start login_<код> — вход на сайт в обычном браузере
+    if (payload.startsWith("login_")) {
+      const code = payload.slice(6);
+      if (!isLoginCodeOpen(code)) {
+        await ctx.reply("Ссылка для входа устарела. Нажмите «Войти через Telegram» на сайте ещё раз.");
+        return;
+      }
+      const host = config.publicUrl.replace(/^https?:\/\//, "");
+      const linking = linkTargetOf(code) !== undefined;
+      await ctx.reply(
+        linking
+          ? `Подключить этот Telegram к вашему аккаунту на сайте <b>${esc(host)}</b>?\n\nПосле этого челленджи, баллы и оплата будут общими: заходите хоть на сайт, хоть сюда.`
+          : `Вход на сайт <b>${esc(host)}</b> под вашим аккаунтом Telegram.\n\nНажмите «Войти», если это вы открыли сайт. Если нет, нажмите «Отмена».`,
+        {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard().text(linking ? "Подключить" : "Войти", `weblogin:${code}`).text("Отмена", `webcancel:${code}`),
+        },
+      );
+      return;
+    }
     const slug = payload.startsWith("c_") ? payload.slice(2) : undefined;
     const enrollment = await primaryEnrollment(user.id);
     if (enrollment && !slug) {
@@ -120,6 +154,39 @@ export function setupBot() {
       return;
     }
     await ctx.reply(m.text, { parse_mode: "HTML", reply_markup: m.keyboard });
+  });
+
+  bot.callbackQuery(/^weblogin:(.+)$/, async (ctx) => {
+    const code = ctx.match[1];
+    const target = linkTargetOf(code);
+    if (target !== undefined && isLoginCodeOpen(code)) {
+      // подключение Telegram к аккаунту сайта
+      try {
+        const user = await linkTelegram(target, ctx.from);
+        confirmLoginCode(code, user.id);
+        await ctx.answerCallbackQuery("Готово");
+        await ctx.editMessageText("Готово! Telegram подключён. Теперь приложение открывается и здесь, и на сайте.").catch(() => undefined);
+        await ctx.reply("Открыть приложение:", { reply_markup: openAppKeyboard() }).catch(() => undefined);
+      } catch (err) {
+        if (!(err instanceof AccountConflict)) throw err;
+        cancelLoginCode(code);
+        await ctx.answerCallbackQuery();
+        await ctx.editMessageText(err.message).catch(() => undefined);
+      }
+      return;
+    }
+    const user = await upsertFromCtx(ctx.from);
+    const ok = confirmLoginCode(code, user.id);
+    await ctx.answerCallbackQuery(ok ? "Готово" : "Ссылка устарела");
+    await ctx
+      .editMessageText(ok ? "Готово! Вернитесь на сайт: вход выполнен." : "Ссылка для входа устарела. Нажмите «Войти через Telegram» на сайте ещё раз.")
+      .catch(() => undefined);
+  });
+
+  bot.callbackQuery(/^webcancel:(.+)$/, async (ctx) => {
+    cancelLoginCode(ctx.match[1]);
+    await ctx.answerCallbackQuery("Вход отменён");
+    await ctx.editMessageText("Вход отменён.").catch(() => undefined);
   });
 
   bot.command("app", async (ctx) => {

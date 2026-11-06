@@ -1701,3 +1701,343 @@ textarea::placeholder {
   line-height: 1.4;
   padding: 14px 16px;
 }
+
+/* ================= Сайт в браузере: вход ================= */
+
+.login {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+}
+.login-main {
+  width: 100%;
+  max-width: 440px;
+}
+.login-card .card-title + .muted {
+  margin: 6px 0 16px;
+}
+a.btn {
+  text-decoration: none;
+}
+.btn.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.login-error {
+  color: var(--bad);
+  font-weight: 600;
+}
+.login-wait {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--rank-soft);
+  font-size: 14px;
+  font-weight: 600;
+}
+.dot-pulse {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dot-pulse 1.2s ease-in-out infinite;
+}
+@keyframes dot-pulse {
+  50% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+}
+.login-qr {
+  display: none;
+  text-align: center;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--field-line);
+}
+.login-qr img {
+  width: 168px;
+  height: 168px;
+  margin: 0 auto 6px;
+  padding: 10px;
+  border-radius: 20px;
+  background: #fff;
+  box-sizing: content-box;
+}
+/* QR нужен на ПК и планшете: на телефоне человек и так нажмёт кнопку */
+@media (min-width: 768px) {
+  .login-qr {
+    display: block;
+  }
+}
+.login-ask {
+  margin: 0 0 8px;
+  text-align: center;
+  font-weight: 650;
+}
+.seg-big button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 8px;
+  font-size: 15px;
+}
+.login-foot {
+  margin: 14px 2px 0;
+}
+input[type="email"],
+input[type="password"] {
+  font: inherit;
+  padding: 13px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--field-line);
+  background: var(--field);
+  color: var(--text);
+  width: 100%;
+  outline: none;
+}
+
+/* Боковые элементы меню видны только на широком экране */
+.tabbar-brand,
+.tab-logout {
+  display: none;
+}
+
+/* Мышь: подсветка при наведении */
+@media (hover: hover) {
+  .btn:hover:not(:disabled) {
+    filter: brightness(1.06);
+  }
+  .btn-primary:hover:not(:disabled) {
+    filter: none;
+    background: #1e293b;
+  }
+  .tab:hover {
+    color: var(--text);
+  }
+  .row:hover {
+    background: rgba(255, 255, 255, 0.35);
+  }
+}
+
+/* ================= Компьютер: меню слева ================= */
+
+@media (min-width: 1100px) {
+  .tabbar {
+    top: 24px;
+    bottom: 24px;
+    left: max(24px, calc(50% - 280px - 32px - 232px));
+    right: auto;
+    width: 232px;
+    max-width: none;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+  }
+  .tab {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    font-size: 15px;
+    border-radius: 18px;
+  }
+  .tabbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px 18px;
+    font: 700 19px/1 var(--font);
+    letter-spacing: var(--tracking);
+  }
+  .tab-logout {
+    display: flex;
+    margin-top: auto;
+  }
+  .page {
+    padding-top: 32px;
+  }
+  .page.tabs {
+    padding-bottom: 48px;
+  }
+  .pin {
+    bottom: 24px;
+  }
+  .page.with-pin {
+    padding-bottom: 112px;
+  }
+}
+@media (max-width: 1099px) {
+  .tabbar.desk-only {
+    display: none;
+  }
+}
+
+/* ================= Оплата и аккаунт ================= */
+
+.chip-wait {
+  background: var(--rank-soft);
+  color: #1d7fb8;
+}
+.pay-card .card-head b {
+  font-size: 17px;
+}
+.pay-number {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--field-line);
+  border-radius: var(--radius-sm);
+  background: var(--field);
+  font: 700 20px/1.2 var(--font);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+.pay-number svg {
+  flex: none;
+  color: var(--text-2);
+}
+.pay-holder {
+  margin: 8px 2px 0;
+}
+.pay-amount {
+  margin: 12px 2px;
+}
+.account-card > .muted {
+  margin: 4px 0 6px;
+}
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+.account-row + .account-row {
+  border-top: 1px solid var(--field-line);
+}
+.account-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.account-text span {
+  font-size: 13px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btn-sm {
+  padding: 10px 14px;
+  font-size: 14px;
+}
+.account-form {
+  margin-top: 6px;
+}
+
+/* На широком экране шторка становится окном по центру */
+@media (min-width: 768px) {
+  .sheet {
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .sheet-body {
+    max-width: 520px;
+    border-radius: 28px;
+    padding-bottom: 20px;
+  }
+  .sheet-grip {
+    display: none;
+  }
+}
+
+/* Восстановление пароля */
+.login-h {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 700;
+}
+.link-btn {
+  align-self: center;
+  border: 0;
+  background: none;
+  padding: 6px 4px;
+  color: var(--primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.link-btn:hover {
+  text-decoration: underline;
+}
+.login-sent {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.login-sent p {
+  margin: 0;
+}
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+.switch-row input {
+  width: 44px;
+  height: 26px;
+  flex: none;
+  appearance: none;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.16);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.switch-row input::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s;
+}
+.switch-row input:checked {
+  background: var(--primary);
+}
+.switch-row input:checked::after {
+  transform: translateX(18px);
+}
+.account-switch {
+  padding: 12px 0 2px;
+  border-top: 1px solid var(--field-line);
+}
+.account-switch .account-text {
+  display: flex;
+  flex-direction: column;
+}

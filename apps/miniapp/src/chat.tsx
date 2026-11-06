@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { api, type ChatMessage, type ChatPage, type ChatSummary, type Me, type State } from "./api";
+import { api, inTelegram, type ChatMessage, type ChatPage, type ChatSummary, type Me, type State } from "./api";
 import type { Screen } from "./App";
 import { Avatar, Icon, IconTile } from "./icons";
 import { alertMsg, compressImage, haptic, humanDate, inChallenges, plural } from "./util";
@@ -350,6 +350,12 @@ export function Chat({ state, me, open, go }: { state: State; me: Me; open?: (en
     <div className="page chat-page" style={{ paddingBottom: pad }}>
       <ChallengeSwitch me={me} current={state.enrollmentId} open={open} go={go} />
       <header className="chat-head">
+        {/* в Telegram работает системная кнопка «Назад», на сайте своя */}
+        {!inTelegram() && (
+          <button className="icon-btn" onClick={() => go("home")} aria-label="Назад">
+            <Icon name="back" size={20} weight="bold" />
+          </button>
+        )}
         <IconTile icon="users" tone="rank" />
         <div>
           <h1 className="chat-title">Чат участников</h1>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type CatalogItem, type DayReport, type DayState, type DayTask, type LeaderboardData, type LeaderRow, type Me, type State, type User } from "./api";
+import { api, inTelegram, logout, type CardSettings, type CatalogItem, type DayReport, type DayState, type DayTask, type LeaderboardData, type LeaderRow, type Me, type State, type User } from "./api";
 import type { Screen } from "./App";
 import { Avatar, Icon, IconTile, REWARD_ICONS, type IconName, type Tone } from "./icons";
 import { alertMsg, compressImage, countdownParts, GOALS, haptic, humanDate, inChallenges, openTgLink, plural, tomorrowIso } from "./util";
@@ -21,7 +21,7 @@ const nameOf = (u: User) => u.displayName || u.firstName || (u.username ? `@${u.
 
 function Header({ title, subtitle, onBack }: { title: string; subtitle?: string; onBack?: () => void }) {
   // В Telegram работает системная кнопка «Назад», в браузере показываем свою
-  const inTg = Boolean(window.Telegram?.WebApp.initData);
+  const inTg = inTelegram();
   return (
     <header className="header">
       {!inTg && onBack && (
@@ -858,6 +858,140 @@ export function Onboarding({ user, onDone }: { user: User; onDone: (u: User) => 
   );
 }
 
+/** Где можно заниматься: сайт (почта и пароль) и Telegram. Аккаунт один, прогресс и оплата общие. */
+function AccountCard({ user, onSaved }: { user: User; onSaved: (u: User) => void }) {
+  const [email, setEmail] = useState(user.email ?? "");
+  const [password, setPassword] = useState("");
+  const [editing, setEditing] = useState(!user.email);
+  const [busy, setBusy] = useState(false);
+  const [waitingTg, setWaitingTg] = useState(false);
+
+  // после подтверждения в боте у аккаунта появится Telegram
+  useEffect(() => {
+    if (!waitingTg) return;
+    const timer = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const m = await api.get<Me>("/me");
+        if (m.user.telegramId) {
+          setWaitingTg(false);
+          haptic("success");
+          // аккаунты могли объединиться: перезагружаем, чтобы подтянуть челленджи из Telegram
+          location.reload();
+        }
+      } catch {
+        /* проверим ещё раз */
+      }
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [waitingTg]);
+
+  const linkTelegram = async () => {
+    // окно открываем сразу по нажатию, иначе браузер его заблокирует
+    const w = window.open("", "_blank");
+    try {
+      const r = await api.post<{ url: string }>("/account/telegram-link");
+      if (w) w.location.href = r.url;
+      else location.href = r.url;
+      setWaitingTg(true);
+    } catch (e) {
+      w?.close();
+      alertMsg((e as Error).message);
+    }
+  };
+
+  const toggleReminders = async (on: boolean) => {
+    try {
+      const r = await api.post<{ user: User }>("/account/email-reminders", { on });
+      haptic("success");
+      onSaved(r.user);
+    } catch (e) {
+      alertMsg((e as Error).message);
+    }
+  };
+
+  const saveCredentials = async () => {
+    setBusy(true);
+    try {
+      const r = await api.post<{ user: User }>("/account/credentials", { email, password });
+      haptic("success");
+      setPassword("");
+      setEditing(false);
+      onSaved(r.user);
+    } catch (e) {
+      alertMsg((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card account-card">
+      <h2 className="card-title">Где заниматься</h2>
+      <p className="muted small">Аккаунт один: задания, баллы, чат и оплата общие на сайте и в Telegram.</p>
+      <div className="account-row">
+        <IconTile icon="telegram" tone="rank" size="sm" />
+        <div className="account-text">
+          <b>Telegram</b>
+          <span>{user.telegramId ? `подключён${user.username ? ` · @${user.username}` : ""}` : user.email ? "не подключён: напоминания придут на почту" : "не подключён"}</span>
+        </div>
+        {user.telegramId ? (
+          <span className="chip chip-good">
+            <Icon name="check" size={14} weight="bold" />
+          </span>
+        ) : (
+          <button className="btn btn-soft btn-sm" onClick={() => void linkTelegram()}>
+            Подключить
+          </button>
+        )}
+      </div>
+      {waitingTg && (
+        <div className="login-wait">
+          <span className="dot-pulse" aria-hidden="true" />
+          Нажмите «Подключить» в боте. Страница обновится сама.
+        </div>
+      )}
+      <div className="account-row">
+        <IconTile icon="mail" tone="task" size="sm" />
+        <div className="account-text">
+          <b>Сайт</b>
+          <span>{user.email ? user.email : "вход по почте и паролю не задан"}</span>
+        </div>
+        {user.email && !editing && (
+          <button className="btn btn-soft btn-sm" onClick={() => setEditing(true)}>
+            Изменить
+          </button>
+        )}
+      </div>
+      {editing && (
+        <div className="form account-form">
+          <label>
+            Почта
+            <input type="email" value={email} autoComplete="email" onChange={(e) => setEmail(e.target.value)} />
+          </label>
+          <label>
+            {user.email ? "Новый пароль" : "Пароль"}
+            <input type="password" value={password} autoComplete="new-password" placeholder="не короче 6 символов" onChange={(e) => setPassword(e.target.value)} />
+          </label>
+          <button className="btn btn-primary wide" disabled={busy || !email || password.length < 6} onClick={() => void saveCredentials()}>
+            Сохранить вход на сайт
+          </button>
+          <p className="muted small">Сайт: {location.host}</p>
+        </div>
+      )}
+      {user.email && !editing && (
+        <label className="switch-row account-switch">
+          <span className="account-text">
+            <b>Напоминания на почту</b>
+            <span>{user.telegramId ? "если бот в Telegram недоступен" : "утром задание, вечером напоминание отметиться"}</span>
+          </span>
+          <input type="checkbox" checked={user.emailReminders} onChange={(e) => void toggleReminders(e.target.checked)} />
+        </label>
+      )}
+    </section>
+  );
+}
+
 export function Profile({ me, go, onSaved }: Props & { onSaved: (u: User) => void }) {
   const name = nameOf(me.user);
   return (
@@ -880,8 +1014,10 @@ export function Profile({ me, go, onSaved }: Props & { onSaved: (u: User) => voi
           }}
         />
       </section>
+      <AccountCard user={me.user} onSaved={onSaved} />
       <div className="list">
         <ListRow icon="rules" label="Правила челленджа" onClick={() => go("rules")} />
+        {!inTelegram() && <ListRow icon="logout" tone="bad" label="Выйти с сайта" onClick={logout} />}
       </div>
       <p className="muted small center-text">Часовой пояс: {me.user.timezone}. Напоминания приходят по нему.</p>
     </div>
@@ -890,21 +1026,141 @@ export function Profile({ me, go, onSaved }: Props & { onSaved: (u: User) => voi
 
 // ---------------- Каталог (нет участия) ----------------
 
+/** Выбор оплаты: перевод на карту (подтверждает организатор) или Tribute в Telegram */
+function PaySheet({
+  item,
+  card,
+  hasTelegram,
+  price,
+  onClose,
+  onRequested,
+}: {
+  item: CatalogItem;
+  card: CardSettings | null;
+  hasTelegram: boolean;
+  price: string;
+  onClose: () => void;
+  onRequested: () => void;
+}) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(item.cardPending);
+  const copy = (text: string) => {
+    navigator.clipboard?.writeText(text.replace(/\s/g, "")).then(
+      () => haptic("success"),
+      () => undefined,
+    );
+  };
+  const requestCard = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/challenges/${item.id}/card-payment`, { note });
+      haptic("success");
+      setSent(true);
+      onRequested();
+    } catch (e) {
+      alertMsg((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="sheet" onClick={onClose}>
+      <div className="sheet-body" role="dialog" aria-label="Оплата" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-grip" />
+        <h2 className="sheet-title">{item.title}</h2>
+        <p className="muted sheet-sub">Стоимость {price}. После оплаты челлендж открывается и на сайте, и в Telegram.</p>
+        {card && (
+          <section className="card pay-card">
+            <div className="card-head">
+              <IconTile icon="card" tone="good" size="sm" />
+              <b>Перевод на карту</b>
+            </div>
+            {sent ? (
+              <div className="login-wait">
+                <span className="dot-pulse" aria-hidden="true" />
+                Заявка отправлена. Доступ откроется, как только организатор подтвердит перевод.
+              </div>
+            ) : (
+              <>
+                <button className="pay-number" onClick={() => copy(card.number)} aria-label="Скопировать номер">
+                  <span>{card.number}</span>
+                  <Icon name="copy" size={18} weight="bold" />
+                </button>
+                {(card.holder || card.bank) && (
+                  <p className="muted small pay-holder">{[card.holder, card.bank].filter(Boolean).join(" · ")}</p>
+                )}
+                <p className="pay-amount">
+                  Сумма: <b>{item.priceRub} ₽</b> за 30 дней
+                </p>
+                {card.note && <p className="muted small">{card.note}</p>}
+                <div className="form">
+                  <label>
+                    Как вас найти в переводах
+                    <input placeholder="имя или 4 последние цифры карты" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} />
+                  </label>
+                  <button className="btn btn-primary wide" disabled={busy} onClick={() => void requestCard()}>
+                    Я оплатил
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        )}
+        {item.tributeLink && (
+          <section className="card pay-card">
+            <div className="card-head">
+              <IconTile icon="telegram" tone="rank" size="sm" />
+              <b>Оплата в Telegram</b>
+            </div>
+            <p className="muted small">
+              Через Tribute{item.paymentMode === "SUBSCRIPTION" ? ", с автоматическим продлением каждый месяц" : ""}. Доступ откроется сам.
+              {!hasTelegram && " Для этой оплаты нужен Telegram: потом подключите его в профиле, и челлендж появится здесь."}
+            </p>
+            <button className="btn btn-soft wide" onClick={() => openTgLink(item.tributeLink!)}>
+              Оплатить в Telegram
+            </button>
+          </section>
+        )}
+        {!card && !item.tributeLink && <div className="card muted">Оплата скоро откроется.</div>}
+      </div>
+    </div>
+  );
+}
+
 /** Все открытые челленджи. Без участия это стартовый экран, с участием вкладка «Челленджи». */
-export function Catalog({ current, onOpen }: { current?: number; onOpen?: (enrollmentId: number) => void }) {
+export function Catalog({
+  current,
+  onOpen,
+  user,
+  onSaved,
+}: {
+  current?: number;
+  onOpen?: (enrollmentId: number) => void;
+  /** Стартовый экран без участия: внизу карточка «Где заниматься» (подключить Telegram, вход на сайт) */
+  user?: User;
+  onSaved?: (u: User) => void;
+}) {
   const [items, setItems] = useState<CatalogItem[] | null>(null);
   const [bot, setBot] = useState("");
   const [organizer, setOrganizer] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
-  useEffect(() => {
+  const [card, setCard] = useState<CardSettings | null>(null);
+  const [hasTelegram, setHasTelegram] = useState(true);
+  const [paying, setPaying] = useState<CatalogItem | null>(null);
+  const load = () =>
     api
-      .get<{ challenges: CatalogItem[]; botUsername: string; organizer?: boolean }>("/challenges")
+      .get<{ challenges: CatalogItem[]; botUsername: string; organizer?: boolean; card: CardSettings | null; hasTelegram: boolean }>("/challenges")
       .then((r) => {
         setItems(r.challenges);
         setBot(r.botUsername);
         setOrganizer(Boolean(r.organizer));
+        setCard(r.card);
+        setHasTelegram(r.hasTelegram);
       })
       .catch((e) => alertMsg(e.message));
+  useEffect(() => {
+    void load();
   }, []);
   const inTabs = current !== undefined;
   const join = async (c: CatalogItem) => {
@@ -922,7 +1178,7 @@ export function Catalog({ current, onOpen }: { current?: number; onOpen?: (enrol
       }
       return;
     }
-    if (c.tributeLink) openTgLink(c.tributeLink);
+    if (card || c.tributeLink) setPaying(c);
     else if (bot) openTgLink(`https://t.me/${bot}?start=c_${c.slug}`);
   };
   const price = (c: CatalogItem) =>
@@ -963,6 +1219,7 @@ export function Catalog({ current, onOpen }: { current?: number; onOpen?: (enrol
               ) : (
                 <>
                   {c.draft && <span className="chip">Черновик</span>}
+                  {c.cardPending && <span className="chip chip-wait">Ждём подтверждения оплаты</span>}
                   {c.joined?.phase === "finished" && <span className="chip chip-good">Пройден</span>}
                   {organizer ? (
                     <span className="chip">Старт сегодня</span>
@@ -988,6 +1245,22 @@ export function Catalog({ current, onOpen }: { current?: number; onOpen?: (enrol
       })}
       {items && items.length > 0 && !organizer && (
         <p className="muted small center-text">После оплаты вернись сюда: доступ откроется автоматически.</p>
+      )}
+      {!inTabs && user && onSaved && <AccountCard user={user} onSaved={onSaved} />}
+      {!inTabs && !inTelegram() && (
+        <div className="list">
+          <ListRow icon="logout" tone="bad" label="Выйти с сайта" onClick={logout} />
+        </div>
+      )}
+      {paying && (
+        <PaySheet
+          item={paying}
+          card={card}
+          hasTelegram={hasTelegram}
+          price={price(paying)}
+          onClose={() => setPaying(null)}
+          onRequested={() => void load()}
+        />
       )}
     </div>
   );

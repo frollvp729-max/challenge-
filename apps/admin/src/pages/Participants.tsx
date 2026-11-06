@@ -4,7 +4,8 @@ import { api } from "../api";
 interface Row {
   enrollmentId: number;
   userId: number;
-  telegramId: string;
+  telegramId: string | null;
+  email?: string | null;
   username: string | null;
   name: string;
   displayName: string | null;
@@ -35,7 +36,8 @@ interface AddResult {
   created: boolean;
   startDate: string;
   name: string;
-  telegramId: string;
+  telegramId: string | null;
+  email?: string | null;
   seenBot: boolean;
   notified: boolean | null;
 }
@@ -62,7 +64,7 @@ function AddParticipant({ chs, initial, onAdded }: { chs: Ch[]; initial: string;
     try {
       const r = await api.post<AddResult>("/participants", { who, challengeId: Number(challengeId), startToday: today, notify });
       const title = chs.find((c) => String(c.id) === challengeId)?.title ?? "";
-      const label = r.seenBot ? r.name : `Telegram ID ${r.telegramId}`;
+      const label = r.seenBot ? r.name : `${r.telegramId ? `Telegram ID ${r.telegramId}` : r.email}`;
       if (!r.created) {
         setMsg({ ok: true, text: `${label} уже участвует в «${title}», день 1: ${fmtDate(r.startDate)}. Ничего не меняли.` });
       } else {
@@ -99,7 +101,7 @@ function AddParticipant({ chs, initial, onAdded }: { chs: Ch[]; initial: string;
             </option>
           ))}
         </select>
-        <input placeholder="@username или Telegram ID" value={who} onChange={(e) => setWho(e.target.value)} onKeyDown={(e) => e.key === "Enter" && challengeId && who.trim() && add()} />
+        <input placeholder="@username, Telegram ID или почта с сайта" value={who} onChange={(e) => setWho(e.target.value)} onKeyDown={(e) => e.key === "Enter" && challengeId && who.trim() && add()} />
         <button className="primary" disabled={!challengeId || !who.trim() || busy} onClick={add}>
           Добавить бесплатно
         </button>
@@ -145,7 +147,7 @@ function EditParticipant({ row, onClose, onSaved }: { row: Row; onClose: () => v
   };
   const remove = async () => {
     const text =
-      `Удалить из «${row.challenge}»: ${row.name}, Telegram ID ${row.telegramId}?\n\n` +
+      `Удалить из «${row.challenge}»: ${row.name}, ${row.telegramId ? `Telegram ID ${row.telegramId}` : row.email}?\n\n` +
       "Его отчёты, баллы и место в рейтинге удалятся, вернуть их будет нельзя. Оплаты в разделе «Платежи» останутся.\n\n" +
       "Если нужно только закрыть доступ, поставьте статус «Отключён».";
     if (!confirm(text)) return;
@@ -164,7 +166,7 @@ function EditParticipant({ row, onClose, onSaved }: { row: Row; onClose: () => v
       <div className="modal-body" onClick={(e) => e.stopPropagation()}>
         <h2 style={{ marginTop: 0 }}>{row.name}</h2>
         <p className="muted">
-          {row.challenge} · Telegram ID {row.telegramId}
+          {row.challenge} · {row.telegramId ? `Telegram ID ${row.telegramId}` : row.email}
           {row.username ? ` · @${row.username}` : ""} · оплата: {row.payment}
         </p>
         {err && <div className="error">{err}</div>}
@@ -245,7 +247,7 @@ function Organizers() {
         </div>
       ))}
       <div className="row">
-        <input placeholder="@username или Telegram ID" value={who} onChange={(e) => setWho(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+        <input placeholder="@username, Telegram ID или почта с сайта" value={who} onChange={(e) => setWho(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
         <button className="primary" disabled={!who.trim()} onClick={add}>Сделать организатором</button>
       </div>
       <p className="muted small">По @username находим того, кто уже открывал бота. Если не находится, нажмите «Старт» в боте и попробуйте снова.</p>
@@ -277,7 +279,7 @@ export function Participants({ initialChallenge }: { initialChallenge: string })
   const exportCsv = () => {
     const head = ["telegramId", "username", "name", "registeredAt", "challenge", "day1", "payment", "day", "streak", "points", "rank", "status"];
     const lines = sorted.map((r) =>
-      [r.telegramId, r.username ?? "", r.name, r.registeredAt.slice(0, 10), r.challenge, r.streamStart, r.payment, r.day, r.currentStreak, r.points, r.rank ?? "", r.status]
+      [r.telegramId ?? r.email ?? "", r.username ?? "", r.name, r.registeredAt.slice(0, 10), r.challenge, r.streamStart, r.payment, r.day, r.currentStreak, r.points, r.rank ?? "", r.status]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(","),
     );
@@ -294,7 +296,7 @@ export function Participants({ initialChallenge }: { initialChallenge: string })
   };
   const remove = async (r: Row) => {
     const text =
-      `Удалить из «${r.challenge}»: ${r.name}, Telegram ID ${r.telegramId}?\n\n` +
+      `Удалить из «${r.challenge}»: ${r.name}, ${r.telegramId ? `Telegram ID ${r.telegramId}` : r.email}?\n\n` +
       "Его отчёты, баллы и место в рейтинге удалятся, вернуть их будет нельзя. Оплаты в разделе «Платежи» останутся.\n\n" +
       "Если нужно только закрыть доступ, нажмите «Отключить».";
     if (!confirm(text)) return;
@@ -334,7 +336,7 @@ export function Participants({ initialChallenge }: { initialChallenge: string })
           {sorted.map((r) => (
             <tr key={r.enrollmentId}>
               <td>{r.rank ?? "—"}</td>
-              <td>{r.telegramId}</td>
+              <td>{r.telegramId ?? <span className="muted">{r.email}</span>}</td>
               <td>
                 {r.name}
                 {r.botBlocked && <span className="muted"> (бот заблокирован)</span>}

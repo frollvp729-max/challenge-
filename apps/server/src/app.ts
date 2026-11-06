@@ -9,11 +9,12 @@ import { config } from "./config.js";
 import { miniappRoutes } from "./routes/miniapp.js";
 import { adminRoutes } from "./routes/admin.js";
 import { webhookRoutes } from "./routes/webhooks.js";
+import { webAuthRoutes } from "./routes/webAuth.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 export async function buildApp() {
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" }, bodyLimit: 1024 * 1024 });
+  const app = Fastify({ trustProxy: true, logger: { level: process.env.LOG_LEVEL ?? "info" }, bodyLimit: 1024 * 1024 });
   await app.register(cors, { origin: true });
   await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 
@@ -32,6 +33,10 @@ export async function buildApp() {
   }
 
   app.get("/health", async () => ({ ok: true }));
+  // Сайт и Mini App живут по одному адресу: корень домена ведёт в приложение
+  app.get("/", async (_req, reply) => reply.redirect("/app/"));
+  app.get("/app", async (_req, reply) => reply.redirect("/app/"));
+  await app.register(webAuthRoutes, { prefix: "/api/web-auth" });
   await app.register(miniappRoutes, { prefix: "/api" });
   await app.register(adminRoutes, { prefix: "/admin/api" });
   await app.register(webhookRoutes, { prefix: "/webhooks" });

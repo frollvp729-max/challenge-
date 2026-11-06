@@ -4,6 +4,7 @@ import { localDate, localHour } from "../lib/dates.js";
 import { sendTo } from "../bot/index.js";
 import { eveningMessage, finishedMessage, morningMessage, openAppKeyboard } from "../bot/messages.js";
 import { challengeLeaderboard, currentDayOf, recomputeEnrollment } from "./enrollments.js";
+import { notifyUser } from "./notify.js";
 
 /**
  * Раз в минуту проходит по активным участиям и шлёт утреннее задание,
@@ -31,7 +32,11 @@ export async function tickNotifications(now = new Date()) {
           const rank = board.find((b) => b.enrollmentId === e.id)?.rank ?? null;
           const m = finishedMessage(ch.title, updated?.doneCount ?? e.doneCount, ch.durationDays, updated?.points ?? e.points, rank);
           await prisma.enrollment.update({ where: { id: e.id }, data: { finishedNotified: true, status: "COMPLETED" } });
-          if (!e.user.botBlocked) await sendTo(e.user.telegramId, m.text, m.keyboard);
+          await notifyUser(e.user, m.text, m.keyboard, {
+            subject: `Челлендж «${ch.title}» завершён`,
+            button: "Получить сертификат",
+            params: { screen: "final", enrollment: String(e.id) },
+          });
         }
         continue;
       }
@@ -60,16 +65,24 @@ export async function tickNotifications(now = new Date()) {
           currentStreak: updated?.currentStreak ?? 0,
           missedYesterday,
         });
-        if (!e.user.botBlocked) await sendTo(e.user.telegramId, m.text, m.keyboard);
+        await notifyUser(e.user, m.text, m.keyboard, {
+          subject: `День ${day}/${ch.durationDays}: ${task?.title ?? "задание дня"}`,
+          button: "Открыть задание",
+          params: { screen: "today", enrollment: String(e.id) },
+        });
         continue;
       }
 
       if (hour >= ch.eveningHour && e.lastEveningDate !== today && e.lastMorningDate === today) {
         await prisma.enrollment.update({ where: { id: e.id }, data: { lastEveningDate: today } });
         const reported = await prisma.report.count({ where: { enrollmentId: e.id, dayNumber: day } });
-        if (!reported && !e.user.botBlocked) {
+        if (!reported) {
           const m = eveningMessage(24 - hour, e.currentStreak);
-          await sendTo(e.user.telegramId, m.text, m.keyboard);
+          await notifyUser(e.user, m.text, m.keyboard, {
+            subject: `Сегодня ещё можно выполнить задание: «${ch.title}»`,
+            button: "Отчитаться",
+            params: { screen: "today", enrollment: String(e.id) },
+          });
         }
       }
     } catch (err) {
@@ -89,7 +102,7 @@ export async function tickBroadcasts() {
       : b.audience === "challenge" && b.challengeId
         ? { enrollments: { some: { stream: { challengeId: b.challengeId } } } }
         : {};
-  const users = await prisma.user.findMany({ where: { ...where, botBlocked: false }, select: { telegramId: true } });
+  const users = await prisma.user.findMany({ where: { ...where, botBlocked: false, telegramId: { not: null } }, select: { telegramId: true } });
   const kb = b.buttonText ? openAppKeyboard(b.buttonText) : undefined;
   let sent = 0;
   let failed = 0;
