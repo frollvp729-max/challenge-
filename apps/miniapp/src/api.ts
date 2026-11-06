@@ -91,6 +91,8 @@ export interface User {
   telegramId: string | null;
   /** Почта для входа на сайте, если задана */
   email: string | null;
+  /** Присылать напоминания на почту, когда нет Telegram */
+  emailReminders: boolean;
   username: string | null;
   firstName: string | null;
   photoUrl: string | null;

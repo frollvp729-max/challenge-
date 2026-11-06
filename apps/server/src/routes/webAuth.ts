@@ -8,10 +8,14 @@ import {
   hashPassword,
   normalizeEmail,
   resetAttempts,
+  signLinkToken,
   signWebSession,
   takeLoginCode,
   tooManyAttempts,
+  verifyLinkToken,
 } from "../lib/webAuth.js";
+import { mailEnabled, sendMail } from "../lib/mail.js";
+import { sendTo } from "../bot/index.js";
 import { botUsername } from "../bot/index.js";
 
 /** Вход на сайт через бота (см. lib/webAuth.ts). Эти адреса доступны без авторизации. */
@@ -47,6 +51,59 @@ export async function webAuthRoutes(app: FastifyInstance) {
     }
     resetAttempts(`email:${email}`);
     return { token: signWebSession(user.id, config.sessionSecret) };
+  });
+
+  /**
+   * Забыли пароль: ссылка на почту (и в Telegram, если он подключён).
+   * Ответ всегда одинаковый, чтобы по нему нельзя было узнать, чья почта зарегистрирована.
+   */
+  app.post("/forgot", async (req, reply) => {
+    const email = normalizeEmail(((req.body ?? {}) as { email?: string }).email);
+    if (!email) return reply.status(400).send({ error: "Проверьте почту: похоже, в ней ошибка" });
+    if (tooManyAttempts(`forgot:${req.ip}`, 10) || tooManyAttempts(`forgot:${email}`, 3)) {
+      return reply.status(429).send({ error: "Ссылку уже отправили. Новую можно запросить через 15 минут" });
+    }
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (user) {
+      const token = signLinkToken("reset", user.id, config.sessionSecret, user.passwordHash ?? "", 3600);
+      const url = `${config.webAppUrl}?reset=${encodeURIComponent(token)}`;
+      const text = "Вы запросили новый пароль для входа на сайт.\nСсылка действует 1 час. Если это были не вы, просто ничего не делайте.";
+      const viaMail = await sendMail({ to: email, subject: "Новый пароль для Челленджей", text, button: { text: "Задать новый пароль", url } });
+      const viaTg = user.telegramId !== null && (await sendTo(user.telegramId, `${text}\n\n${url}`));
+      if (!viaMail && !viaTg) console.warn(`Сброс пароля для ${email}: почта не настроена и Telegram не подключён`);
+    }
+    return { ok: true, mail: mailEnabled() };
+  });
+
+  /** Новый пароль по ссылке из письма; сразу входим */
+  app.post("/reset", async (req, reply) => {
+    const b = (req.body ?? {}) as { token?: string; password?: string };
+    const password = String(b.password ?? "");
+    if (password.length < 6) return reply.status(400).send({ error: "Пароль: не короче 6 символов" });
+    const id = await verifyLinkToken(String(b.token ?? ""), "reset", config.sessionSecret, async (uid) => {
+      const u = await prisma.user.findUnique({ where: { id: uid }, select: { passwordHash: true } });
+      return u ? (u.passwordHash ?? "") : null;
+    });
+    if (!id) return reply.status(400).send({ error: "Ссылка устарела или уже использована. Запросите новую" });
+    await prisma.user.update({ where: { id }, data: { passwordHash: hashPassword(password) } });
+    return { token: signWebSession(id, config.sessionSecret) };
+  });
+
+  /** «Не присылать напоминания на почту» — ссылка из письма */
+  app.get("/unsubscribe", async (req, reply) => {
+    const token = String((req.query as Record<string, unknown>).token ?? "");
+    const id = await verifyLinkToken(token, "unsub", config.sessionSecret, async (uid) =>
+      (await prisma.user.findUnique({ where: { id: uid }, select: { id: true } })) ? "" : null,
+    );
+    if (id) await prisma.user.update({ where: { id }, data: { emailReminders: false } });
+    const msg = id
+      ? "Готово: напоминания на почту больше не придут. Включить их снова можно в профиле на сайте."
+      : "Ссылка устарела. Отключить напоминания можно в профиле на сайте.";
+    return reply
+      .type("text/html; charset=utf-8")
+      .send(
+        `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:system-ui,sans-serif;background:#eef1f6;display:grid;place-items:center;min-height:90vh;margin:0;padding:16px"><div style="background:#fff;border-radius:24px;padding:24px;max-width:420px;line-height:1.5">${msg}<p><a href="${config.webAppUrl}">Открыть приложение</a></p></div></body>`,
+      );
   });
 
   app.post("/start", async (_req, reply) => {

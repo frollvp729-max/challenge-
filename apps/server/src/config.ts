@@ -24,6 +24,14 @@ export const config = {
   uploadsDir: process.env.UPLOADS_DIR ?? "./uploads",
   defaultTimezone: process.env.DEFAULT_TIMEZONE ?? "Europe/Moscow",
   schedulerEnabled: process.env.SCHEDULER !== "off",
+  /** Почта для писем (напоминания и восстановление пароля): SMTP, например smtp.yandex.ru:465 */
+  smtp: {
+    host: process.env.SMTP_HOST ?? "",
+    port: Number(process.env.SMTP_PORT ?? 465),
+    user: process.env.SMTP_USER ?? "",
+    pass: process.env.SMTP_PASS ?? "",
+    from: process.env.MAIL_FROM ?? process.env.SMTP_USER ?? "",
+  },
   /** Ключ подписи сессий сайта: токен бота, без него пароль админки */
   get sessionSecret() {
     return this.botToken || this.adminPassword;

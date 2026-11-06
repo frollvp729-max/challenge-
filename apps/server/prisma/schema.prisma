@@ -15,6 +15,8 @@ model User {
   /// Вход на сайте без Telegram (почта хранится в нижнем регистре)
   email        String? @unique
   passwordHash String?
+  /// Напоминания на почту тем, у кого нет Telegram (можно отключить в профиле или по ссылке в письме)
+  emailReminders Boolean @default(true)
   username    String?
   firstName   String?
   lastName    String?

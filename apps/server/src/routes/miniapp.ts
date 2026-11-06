@@ -111,6 +111,7 @@ function serializeUser(u: User) {
     telegramId: u.telegramId === null ? null : String(u.telegramId),
     /** Почта для входа на сайте (если задана) */
     email: u.email,
+    emailReminders: u.emailReminders,
     username: u.username,
     firstName: u.firstName,
     photoUrl: u.photoUrl,
@@ -283,6 +284,13 @@ export async function miniappRoutes(app: FastifyInstance) {
     if (!bot) throw new HttpError(503, "Бот сейчас недоступен");
     const code = createLoginCode(user.id);
     return { code, url: `https://t.me/${bot}?start=login_${code}` };
+  });
+
+  /** Напоминания на почту: включить или выключить */
+  app.post("/account/email-reminders", async (req) => {
+    const on = Boolean(((req.body ?? {}) as { on?: boolean }).on);
+    const updated = await prisma.user.update({ where: { id: req.tgUser!.id }, data: { emailReminders: on } });
+    return { user: serializeUser(updated) };
   });
 
   /** Почта и пароль для входа на сайте (например, тем, кто начал в Telegram) */

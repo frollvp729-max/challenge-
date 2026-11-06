@@ -135,3 +135,36 @@ export function verifyWebSession(token: string, botToken: string): number | null
   const id = Number(idStr);
   return Number.isInteger(id) && id > 0 ? id : null;
 }
+
+// ---------------- Подписанные ссылки из писем ----------------
+
+/**
+ * Токен для ссылки: <тип>.<userId>.<exp>.<подпись>.
+ * bind — то, что делает ссылку одноразовой: для сброса пароля это текущий хеш пароля
+ * (после смены пароля старая ссылка перестаёт работать).
+ */
+export function signLinkToken(kind: "reset" | "unsub", userId: number, secret: string, bind = "", ttlSec = 3600): string {
+  const exp = Math.floor(Date.now() / 1000) + ttlSec;
+  const body = `${kind}.${userId}.${exp}`;
+  const sig = crypto.createHmac("sha256", secret).update(`${body}.${bind}`).digest("base64url");
+  return `${body}.${sig}`;
+}
+
+/** userId из токена ссылки или null. bindOf получает userId и возвращает то же значение bind, что при подписи. */
+export async function verifyLinkToken(
+  token: string,
+  kind: "reset" | "unsub",
+  secret: string,
+  bindOf: (userId: number) => Promise<string | null>,
+): Promise<number | null> {
+  const parts = String(token ?? "").split(".");
+  if (parts.length !== 4 || parts[0] !== kind || !secret) return null;
+  const [, idStr, expStr, sig] = parts;
+  const id = Number(idStr);
+  if (!Number.isInteger(id) || id <= 0 || Number(expStr) < Date.now() / 1000) return null;
+  const bind = await bindOf(id);
+  if (bind === null) return null;
+  const expected = crypto.createHmac("sha256", secret).update(`${kind}.${idStr}.${expStr}.${bind}`).digest("base64url");
+  if (expected.length !== sig.length || !crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return null;
+  return id;
+}

@@ -4,7 +4,7 @@ import { Icon, type IconName } from "./icons";
 import { Catalog, Final, Home, Leaderboard, Onboarding, Profile, Progress, Rewards, Rules, Today } from "./screens";
 import { theme } from "./theme";
 import { Chat } from "./chat";
-import { Login } from "./login";
+import { Login, ResetPassword } from "./login";
 
 export type Screen = "home" | "catalog" | "today" | "progress" | "leaderboard" | "rewards" | "rules" | "profile" | "final" | "chat";
 
@@ -74,6 +74,8 @@ export function App() {
   const [screen, setScreen] = useState<Screen>(initialScreen);
   const [error, setError] = useState<string | null>(null);
   const [login, setLogin] = useState(needsLogin);
+  // ссылка из письма «восстановить пароль»: /app/?reset=<token>
+  const [reset, setReset] = useState(() => new URLSearchParams(location.search).get("reset"));
 
   const load = useCallback(async () => {
     try {
@@ -97,8 +99,8 @@ export function App() {
       setState(null);
       setLogin(true);
     });
-    if (!login) void load();
-  }, [load, login]);
+    if (!login && !reset) void load();
+  }, [load, login, reset]);
 
   // Кнопка «Назад» Telegram возвращает на главный экран с внутренних экранов (у вкладок есть нижнее меню)
   useEffect(() => {
@@ -133,6 +135,17 @@ export function App() {
   };
   const switchTo = (id: number) => void open(id, true);
 
+  if (reset)
+    return (
+      <ResetPassword
+        token={reset}
+        onDone={() => {
+          history.replaceState(null, "", location.pathname);
+          setReset(null);
+          setLogin(needsLogin());
+        }}
+      />
+    );
   if (login) return <Login onDone={() => setLogin(false)} />;
   if (error) return <div className="center muted">{error}</div>;
   if (!me) return <div className="center muted">Загрузка…</div>;

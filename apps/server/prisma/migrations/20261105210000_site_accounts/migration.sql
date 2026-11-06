@@ -2,6 +2,7 @@
 ALTER TABLE "User" ALTER COLUMN "telegramId" DROP NOT NULL;
 ALTER TABLE "User" ADD COLUMN "email" TEXT;
 ALTER TABLE "User" ADD COLUMN "passwordHash" TEXT;
+ALTER TABLE "User" ADD COLUMN "emailReminders" BOOLEAN NOT NULL DEFAULT true;
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
 -- Оплата переводом на карту

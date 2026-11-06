@@ -31,6 +31,31 @@ test("сайт: почта и пароль, перевод на карту, по
     assert.equal(me.user.email, email);
     assert.equal(me.user.telegramId, null);
 
+    // забыли пароль: ответ одинаковый, ссылка из письма задаёт новый пароль один раз
+    const forgot = await app.inject({ method: "POST", url: "/api/web-auth/forgot", payload: { email } });
+    assert.equal(forgot.statusCode, 200, forgot.body);
+    assert.equal(forgot.json().ok, true);
+    const unknown = await app.inject({ method: "POST", url: "/api/web-auth/forgot", payload: { email: `x${email}` } });
+    assert.equal(unknown.statusCode, 200);
+    const { signLinkToken } = await import("./lib/webAuth.js");
+    const { config } = await import("./config.js");
+    const before = await prisma.user.findUniqueOrThrow({ where: { email } });
+    const resetToken = signLinkToken("reset", before.id, config.sessionSecret, before.passwordHash ?? "", 3600);
+    const reset = await app.inject({ method: "POST", url: "/api/web-auth/reset", payload: { token: resetToken, password: "newpass1" } });
+    assert.equal(reset.statusCode, 200, reset.body);
+    const reuse = await app.inject({ method: "POST", url: "/api/web-auth/reset", payload: { token: resetToken, password: "other12" } });
+    assert.equal(reuse.statusCode, 400);
+    assert.equal((await app.inject({ method: "POST", url: "/api/web-auth/login", payload: { email, password: "secret1" } })).statusCode, 401);
+    assert.equal((await app.inject({ method: "POST", url: "/api/web-auth/login", payload: { email, password: "newpass1" } })).statusCode, 200);
+
+    // напоминания на почту: выключить ссылкой из письма и включить в профиле
+    const { unsubscribeLink } = await import("./services/notify.js");
+    const unsub = await app.inject({ url: unsubscribeLink(before.id).replace(/^https?:\/\/[^/]+/, "") });
+    assert.equal(unsub.statusCode, 200);
+    assert.equal((await app.inject({ url: "/api/me", headers: web })).json().user.emailReminders, false);
+    const on = await app.inject({ method: "POST", url: "/api/account/email-reminders", headers: web, payload: { on: true } });
+    assert.equal(on.json().user.emailReminders, true);
+
     // реквизиты в админке, заявка «Я оплатил», подтверждение
     const adm = { authorization: `Bearer ${(await app.inject({ method: "POST", url: "/admin/api/login", payload: { password: "secret" } })).json().token}` };
     await app.inject({ method: "PUT", url: "/admin/api/card-settings", headers: adm, payload: { number: "2200 0000 0000 0001", holder: "Тест" } });

@@ -900,6 +900,16 @@ function AccountCard({ user, onSaved }: { user: User; onSaved: (u: User) => void
     }
   };
 
+  const toggleReminders = async (on: boolean) => {
+    try {
+      const r = await api.post<{ user: User }>("/account/email-reminders", { on });
+      haptic("success");
+      onSaved(r.user);
+    } catch (e) {
+      alertMsg((e as Error).message);
+    }
+  };
+
   const saveCredentials = async () => {
     setBusy(true);
     try {
@@ -923,7 +933,7 @@ function AccountCard({ user, onSaved }: { user: User; onSaved: (u: User) => void
         <IconTile icon="telegram" tone="rank" size="sm" />
         <div className="account-text">
           <b>Telegram</b>
-          <span>{user.telegramId ? `подключён${user.username ? ` · @${user.username}` : ""}` : "не подключён: нет напоминаний от бота"}</span>
+          <span>{user.telegramId ? `подключён${user.username ? ` · @${user.username}` : ""}` : user.email ? "не подключён: напоминания придут на почту" : "не подключён"}</span>
         </div>
         {user.telegramId ? (
           <span className="chip chip-good">
@@ -968,6 +978,15 @@ function AccountCard({ user, onSaved }: { user: User; onSaved: (u: User) => void
           </button>
           <p className="muted small">Сайт: {location.host}</p>
         </div>
+      )}
+      {user.email && !editing && (
+        <label className="switch-row account-switch">
+          <span className="account-text">
+            <b>Напоминания на почту</b>
+            <span>{user.telegramId ? "если бот в Telegram недоступен" : "утром задание, вечером напоминание отметиться"}</span>
+          </span>
+          <input type="checkbox" checked={user.emailReminders} onChange={(e) => void toggleReminders(e.target.checked)} />
+        </label>
       )}
     </section>
   );

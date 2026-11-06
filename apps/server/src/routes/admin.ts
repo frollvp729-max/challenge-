@@ -12,6 +12,7 @@ import { imageExt, saveUpload } from "./miniapp.js";
 import { CHAT_TEXT_MAX, chatInclude, loadMessages, serializeMessages } from "../services/chat.js";
 import { getCardSettings, saveCardSettings } from "../services/cardPay.js";
 import { normalizeEmail } from "../lib/webAuth.js";
+import { notifyUser } from "../services/notify.js";
 
 const CHALLENGE_FIELDS = [
   "slug", "title", "tagline", "intro", "rules", "coverUrl", "status", "durationDays", "priceRub", "paymentMode",
@@ -562,7 +563,12 @@ export async function adminRoutes(app: FastifyInstance) {
     }).catch(() => undefined);
     if (res.created) {
       const m = paidMessage(res.startDate, p.user.timezone);
-      await sendTo(p.user.telegramId, [`Оплата получена: «${esc(p.challenge.title)}».`, ...m.text.split("\n").slice(2)].join("\n"), m.keyboard);
+      await notifyUser(p.user, [`Оплата получена: «${esc(p.challenge.title)}».`, ...m.text.split("\n").slice(2)].join("\n"), m.keyboard, {
+        subject: `Оплата получена: «${p.challenge.title}»`,
+        button: "Открыть челлендж",
+        params: { enrollment: String(res.enrollment.id) },
+        transactional: true,
+      });
     }
     return { ok: true, enrollmentId: res.enrollment.id };
   });
@@ -572,7 +578,10 @@ export async function adminRoutes(app: FastifyInstance) {
     if (!p) throw Object.assign(new Error("Заявка не найдена"), { statusCode: 404 });
     if (p.status !== "pending") throw Object.assign(new Error("Заявка уже обработана"), { statusCode: 400 });
     await prisma.cardPayment.update({ where: { id: p.id }, data: { status: "rejected", decidedAt: new Date() } });
-    await sendTo(p.user.telegramId, `Мы не нашли ваш перевод за «${esc(p.challenge.title)}». Если вы оплатили, напишите организатору.`);
+    await notifyUser(p.user, `Мы не нашли ваш перевод за «${esc(p.challenge.title)}». Если вы оплатили, напишите организатору.`, undefined, {
+      subject: `Перевод за «${p.challenge.title}» не найден`,
+      transactional: true,
+    });
     return { ok: true };
   });
 }

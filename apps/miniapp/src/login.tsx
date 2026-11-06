@@ -25,33 +25,80 @@ function Step({ n, icon, tone, title, text }: { n: number; icon: IconName; tone:
 
 /** Регистрация и вход по почте и паролю: Telegram не нужен */
 function SiteForm({ onDone }: { onDone: () => void }) {
-  const [mode, setMode] = useState<"register" | "login">("register");
+  const [mode, setMode] = useState<"register" | "login" | "forgot">("register");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+  const switchMode = (m: typeof mode) => {
+    setMode(m);
+    setError(null);
+    setSent(false);
+  };
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const r = await api.post<{ token: string }>(`/web-auth/${mode}`, { name, email, password });
-      setWebSession(r.token);
-      onDone();
+      if (mode === "forgot") {
+        await api.post("/web-auth/forgot", { email });
+        setSent(true);
+      } else {
+        const r = await api.post<{ token: string }>(`/web-auth/${mode}`, { name, email, password });
+        setWebSession(r.token);
+        onDone();
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(false);
     }
   };
+  if (mode === "forgot") {
+    return (
+      <section className="card login-card">
+        <h2 className="login-h">Восстановить пароль</h2>
+        {sent ? (
+          <>
+            <div className="login-sent">
+              <IconTile icon="mail" tone="task" />
+              <p>
+                Если <b>{email}</b> зарегистрирована, на неё пришло письмо со ссылкой. Ссылка действует 1 час. Не видите
+                письмо? Загляните в «Спам».
+              </p>
+            </div>
+            <button className="btn btn-primary wide" onClick={() => switchMode("login")}>
+              Вернуться ко входу
+            </button>
+          </>
+        ) : (
+          <form className="form" onSubmit={submit}>
+            <p className="muted small">Укажите почту, с которой вы регистрировались. Пришлём ссылку, чтобы задать новый пароль.</p>
+            <label>
+              Почта
+              <input type="email" value={email} autoComplete="email" inputMode="email" onChange={(e) => setEmail(e.target.value)} />
+            </label>
+            {error && <p className="login-error">{error}</p>}
+            <button className="btn btn-primary wide" disabled={busy || !email}>
+              Прислать ссылку
+            </button>
+            <button type="button" className="btn btn-ghost wide" onClick={() => switchMode("login")}>
+              Назад
+            </button>
+          </form>
+        )}
+      </section>
+    );
+  }
   return (
     <section className="card login-card">
       <div className="seg">
-        <button className={mode === "register" ? "on" : ""} onClick={() => setMode("register")}>
+        <button className={mode === "register" ? "on" : ""} onClick={() => switchMode("register")}>
           Регистрация
         </button>
-        <button className={mode === "login" ? "on" : ""} onClick={() => setMode("login")}>
+        <button className={mode === "login" ? "on" : ""} onClick={() => switchMode("login")}>
           Вход
         </button>
       </div>
@@ -80,11 +127,69 @@ function SiteForm({ onDone }: { onDone: () => void }) {
         <button className="btn btn-primary wide" disabled={busy || !email || !password || (mode === "register" && !name.trim())}>
           {mode === "register" ? "Создать аккаунт" : "Войти"}
         </button>
+        {mode === "login" && (
+          <button type="button" className="link-btn" onClick={() => switchMode("forgot")}>
+            Забыли пароль?
+          </button>
+        )}
       </form>
       <p className="muted small login-foot">
         Telegram не нужен. Если захотите, подключите его потом в профиле: прогресс и оплата станут общими.
       </p>
     </section>
+  );
+}
+
+/** Новый пароль по ссылке из письма (?reset=...) */
+export function ResetPassword({ token, onDone }: { token: string; onDone: () => void }) {
+  const [password, setPassword] = useState("");
+  const [again, setAgain] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password !== again) return setError("Пароли не совпадают");
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.post<{ token: string }>("/web-auth/reset", { token, password });
+      setWebSession(r.token);
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="login">
+      <div className="login-main">
+        <div className="intro">
+          <IconTile icon="leaf" tone="task" size="lg" />
+          <h1 className="title">Новый пароль</h1>
+          <p className="subtitle">Придумайте пароль, с ним вы будете входить на сайт.</p>
+        </div>
+        <section className="card login-card">
+          <form className="form" onSubmit={submit}>
+            <label>
+              Новый пароль
+              <input type="password" value={password} autoComplete="new-password" placeholder="не короче 6 символов" onChange={(e) => setPassword(e.target.value)} />
+            </label>
+            <label>
+              Ещё раз
+              <input type="password" value={again} autoComplete="new-password" onChange={(e) => setAgain(e.target.value)} />
+            </label>
+            {error && <p className="login-error">{error}</p>}
+            <button className="btn btn-primary wide" disabled={busy || password.length < 6 || !again}>
+              Сохранить и войти
+            </button>
+            <button type="button" className="btn btn-ghost wide" onClick={() => onDone()}>
+              Отмена
+            </button>
+          </form>
+        </section>
+      </div>
+    </div>
   );
 }
 
