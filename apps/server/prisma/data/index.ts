@@ -1,4 +1,5 @@
 import { ABS } from "./absDaily.js";
+import { BREATH } from "./breath30.js";
 import { COLD } from "./coldShower.js";
 import { CONTENT30 } from "./content30.js";
 import { DECLUTTER } from "./declutter.js";
@@ -19,4 +20,4 @@ import { WAKE } from "./wake0500.js";
 import { WATER } from "./water2l.js";
 
 /** Все челленджи с готовым наполнением. Новый — добавить файл в эту папку и сюда. */
-export const CONTENT: ChallengeContent[] = [COLD, WAKE, PUSHUPS, STEPS, PLANK, ABS, SQUATS, MORNING, STRETCH, ENGLISH, READ10, WATER, JOURNAL, MEDITATION, DECLUTTER, CONTENT30, GRATITUDE, NO_QUIT];
+export const CONTENT: ChallengeContent[] = [COLD, WAKE, PUSHUPS, STEPS, PLANK, ABS, SQUATS, MORNING, STRETCH, ENGLISH, READ10, WATER, JOURNAL, MEDITATION, DECLUTTER, CONTENT30, GRATITUDE, NO_QUIT, BREATH];

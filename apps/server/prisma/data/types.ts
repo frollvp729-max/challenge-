@@ -10,6 +10,8 @@ export type DayContent = {
   proofPrompt: string;
   proofType?: string;
   checklist?: string[];
+  /** Аудиосопровождение (путь или URL mp3) */
+  audioUrl?: string;
 };
 
 export type ChallengeContent = {

@@ -65,6 +65,10 @@ export async function saveUpload(buf: Buffer, ext: string, folder: string) {
   return `/uploads/${folder}/${name}`;
 }
 
+export function audioExt(mime: string): string | null {
+  return ({ "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/aac": "aac", "audio/ogg": "ogg" } as Record<string, string>)[mime] ?? null;
+}
+
 export function imageExt(mime: string): string | null {
   return ({ "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic" } as Record<string, string>)[mime] ?? null;
 }

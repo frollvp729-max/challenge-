@@ -309,6 +309,7 @@ export function serializeDay(d: ChallengeDay) {
     task: d.task,
     hint: d.hint,
     imageUrl: d.imageUrl,
+    audioUrl: d.audioUrl,
     proofType: d.proofType,
     proofPrompt: d.proofPrompt,
     proofRequired: d.proofRequired,

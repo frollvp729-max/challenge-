@@ -135,6 +135,8 @@ model ChallengeDay {
   /// Что считается нарушением, подсказки
   hint          String    @default("")
   imageUrl      String?
+  /// Аудиосопровождение дня (mp3/m4a), плеер в Mini App
+  audioUrl      String?
   /// Переопределение очков за выполнение (null = из челленджа)
   points        Int?
   /// none | photo | text | photo_or_text
