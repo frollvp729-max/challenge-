@@ -16,6 +16,8 @@ interface LoginRequest {
   expiresAt: number;
   /** Подключение Telegram к уже открытому аккаунту сайта (id этого аккаунта) */
   linkUserId?: number;
+  /** После подключения показать оплату этого челленджа (slug): так из Max переходят к оплате в Telegram */
+  afterSlug?: string;
   /** id пользователя в нашей базе после подтверждения в боте */
   userId?: number;
 }
@@ -26,12 +28,12 @@ function purge(now = Date.now()) {
   for (const [code, r] of pending) if (r.expiresAt < now) pending.delete(code);
 }
 
-export function createLoginCode(linkUserId?: number): string {
+export function createLoginCode(linkUserId?: number, afterSlug?: string): string {
   purge();
   // защита от переполнения памяти: самые старые коды уходят первыми
   while (pending.size >= MAX_PENDING) pending.delete(pending.keys().next().value!);
   const code = crypto.randomBytes(18).toString("base64url");
-  pending.set(code, { expiresAt: Date.now() + LOGIN_TTL_MS, linkUserId });
+  pending.set(code, { expiresAt: Date.now() + LOGIN_TTL_MS, linkUserId, afterSlug });
   return code;
 }
 
@@ -44,6 +46,11 @@ export function isLoginCodeOpen(code: string): boolean {
 /** Для какого аккаунта сайта этот код подключает Telegram (undefined — обычный вход) */
 export function linkTargetOf(code: string): number | undefined {
   return pending.get(code)?.linkUserId;
+}
+
+/** Какой челлендж предложить оплатить после подключения (если есть) */
+export function afterSlugOf(code: string): string | undefined {
+  return pending.get(code)?.afterSlug;
 }
 
 /** Бот подтвердил вход: привязать код к пользователю */

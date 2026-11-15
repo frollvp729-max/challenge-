@@ -17,6 +17,7 @@ import {
 import { mailEnabled, sendMail } from "../lib/mail.js";
 import { sendTo } from "../bot/index.js";
 import { botUsername } from "../bot/index.js";
+import { maxBotUsername, maxEnabled, maxStartLink, sendToMax } from "../max/bot.js";
 
 /** Вход на сайт через бота (см. lib/webAuth.ts). Эти адреса доступны без авторизации. */
 export async function webAuthRoutes(app: FastifyInstance) {
@@ -70,7 +71,8 @@ export async function webAuthRoutes(app: FastifyInstance) {
       const text = "Вы запросили новый пароль для входа на сайт.\nСсылка действует 1 час. Если это были не вы, просто ничего не делайте.";
       const viaMail = await sendMail({ to: email, subject: "Новый пароль для Челленджей", text, button: { text: "Задать новый пароль", url } });
       const viaTg = user.telegramId !== null && (await sendTo(user.telegramId, `${text}\n\n${url}`));
-      if (!viaMail && !viaTg) console.warn(`Сброс пароля для ${email}: почта не настроена и Telegram не подключён`);
+      const viaMax = !viaTg && user.maxId !== null && (await sendToMax(user.maxId, `${text}\n\n${url}`));
+      if (!viaMail && !viaTg && !viaMax) console.warn(`Сброс пароля для ${email}: почта не настроена, мессенджеры не подключены`);
     }
     return { ok: true, mail: mailEnabled() };
   });
@@ -106,7 +108,22 @@ export async function webAuthRoutes(app: FastifyInstance) {
       );
   });
 
-  app.post("/start", async (_req, reply) => {
+  /** Где ещё можно заниматься: ники ботов Telegram и Max (пусто — выключен) */
+  app.get("/platforms", async () => ({
+    telegram: config.botToken ? botUsername() : "",
+    max: maxEnabled() ? maxBotUsername() : "",
+  }));
+
+  /** Вход на сайт через бота: ?via=max — через бота Max, иначе через Telegram */
+  app.post("/start", async (req, reply) => {
+    const via = String((req.query as Record<string, unknown>).via ?? "telegram");
+    if (via === "max") {
+      if (!maxEnabled()) return reply.status(503).send({ error: "Вход через Max временно недоступен" });
+      const code = createLoginCode();
+      const url = maxStartLink(`login_${code}`);
+      if (!url) return reply.status(503).send({ error: "Вход через Max временно недоступен" });
+      return { code, url, expiresIn: 600 };
+    }
     const bot = botUsername();
     if (!bot || !config.botToken) return reply.status(503).send({ error: "Вход на сайт временно недоступен" });
     const code = createLoginCode();

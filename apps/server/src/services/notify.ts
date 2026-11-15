@@ -2,6 +2,7 @@ import type { User } from "@prisma/client";
 import type { InlineKeyboard } from "grammy";
 import { config } from "../config.js";
 import { sendTo } from "../bot/index.js";
+import { sendToMax } from "../max/bot.js";
 import { sendMail } from "../lib/mail.js";
 import { signLinkToken } from "../lib/webAuth.js";
 
@@ -17,18 +18,33 @@ export function unsubscribeLink(userId: number) {
   return `${config.publicUrl}/api/web-auth/unsubscribe?token=${encodeURIComponent(token)}`;
 }
 
+type Recipient = Pick<User, "id" | "telegramId" | "botBlocked" | "maxId" | "maxBlocked" | "lastPlatform">;
+
 /**
- * Сообщение участнику: в Telegram, если он подключён и бот не заблокирован, иначе на почту.
+ * Сообщение в мессенджер: туда, где человек занимался последним (Telegram или Max),
+ * если там не дошло, во второй. Одно сообщение, без дублей.
+ */
+export async function notifyMessenger(user: Recipient, text: string, keyboard?: InlineKeyboard): Promise<boolean> {
+  const tg = async () => user.telegramId !== null && !user.botBlocked && sendTo(user.telegramId, text, keyboard);
+  const max = async () => user.maxId !== null && !user.maxBlocked && sendToMax(user.maxId, text, keyboard);
+  const order = user.lastPlatform === "max" ? [max, tg] : [tg, max];
+  for (const send of order) if (await send()) return true;
+  return false;
+}
+
+/**
+ * Сообщение участнику: в мессенджер (Telegram или Max), а если их нет или бот недоступен, на почту.
  * transactional: важное письмо (оплата, пароль), уходит даже тем, кто отключил напоминания.
  */
 export async function notifyUser(
-  user: Pick<User, "id" | "telegramId" | "botBlocked" | "email" | "emailReminders">,
+  user: Recipient & Pick<User, "email" | "emailReminders">,
   text: string,
   keyboard: InlineKeyboard | undefined,
   mail: { subject: string; button?: string; params?: Record<string, string>; transactional?: boolean },
 ): Promise<boolean> {
-  if (user.telegramId !== null && !user.botBlocked) {
-    const ok = await sendTo(user.telegramId, text, keyboard);
+  const hasMessenger = (user.telegramId !== null && !user.botBlocked) || (user.maxId !== null && !user.maxBlocked);
+  if (hasMessenger) {
+    const ok = await notifyMessenger(user, text, keyboard);
     if (ok || !user.email) return ok;
   }
   if (!user.email || (!mail.transactional && !user.emailReminders)) return false;

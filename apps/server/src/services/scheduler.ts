@@ -1,10 +1,9 @@
 import { prisma } from "../lib/db.js";
 import { config } from "../config.js";
 import { localDate, localHour } from "../lib/dates.js";
-import { sendTo } from "../bot/index.js";
 import { eveningMessage, finishedMessage, morningMessage, openAppKeyboard } from "../bot/messages.js";
 import { challengeLeaderboard, currentDayOf, recomputeEnrollment } from "./enrollments.js";
-import { notifyUser } from "./notify.js";
+import { notifyMessenger, notifyUser } from "./notify.js";
 
 /**
  * Раз в минуту проходит по активным участиям и шлёт утреннее задание,
@@ -102,12 +101,16 @@ export async function tickBroadcasts() {
       : b.audience === "challenge" && b.challengeId
         ? { enrollments: { some: { stream: { challengeId: b.challengeId } } } }
         : {};
-  const users = await prisma.user.findMany({ where: { ...where, botBlocked: false, telegramId: { not: null } }, select: { telegramId: true } });
+  // рассылка уходит в Telegram или Max: туда, где человек занимается
+  const users = await prisma.user.findMany({
+    where: { ...where, OR: [{ botBlocked: false, telegramId: { not: null } }, { maxBlocked: false, maxId: { not: null } }] },
+    select: { id: true, telegramId: true, botBlocked: true, maxId: true, maxBlocked: true, lastPlatform: true },
+  });
   const kb = b.buttonText ? openAppKeyboard(b.buttonText) : undefined;
   let sent = 0;
   let failed = 0;
   for (const u of users) {
-    const ok = await sendTo(u.telegramId, b.text, kb);
+    const ok = await notifyMessenger(u, b.text, kb);
     if (ok) sent++;
     else failed++;
     await new Promise((r) => setTimeout(r, 40));

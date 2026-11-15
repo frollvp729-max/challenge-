@@ -7,11 +7,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Участник: аккаунт Telegram, аккаунт сайта (почта и пароль) или оба сразу
+/// Участник: аккаунт Telegram, Max, сайта (почта и пароль) или несколько сразу
 model User {
   id          Int      @id @default(autoincrement())
   /// Пусто у тех, кто зарегистрировался на сайте и ещё не подключил Telegram
   telegramId  BigInt?  @unique
+  /// user_id в мессенджере Max (пусто, если Max не подключён)
+  maxId       BigInt?  @unique
+  /// Пользователь остановил бота в Max
+  maxBlocked  Boolean  @default(false)
+  /// Где человек открывал приложение последним: telegram | max | web. Туда и шлём напоминания.
+  lastPlatform String?
   /// Вход на сайте без Telegram (почта хранится в нижнем регистре)
   email        String? @unique
   passwordHash String?

@@ -1,5 +1,6 @@
+import { backButton, confirmMsg } from "./platform";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { api, inTelegram, type ChatMessage, type ChatPage, type ChatSummary, type Me, type State } from "./api";
+import { api, type ChatMessage, type ChatPage, type ChatSummary, type Me, type State } from "./api";
 import type { Screen } from "./App";
 import { Avatar, Icon, IconTile } from "./icons";
 import { alertMsg, compressImage, haptic, humanDate, inChallenges, plural } from "./util";
@@ -309,11 +310,7 @@ export function Chat({ state, me, open, go }: { state: State; me: Me; open?: (en
 
   const remove = async (m: ChatMessage) => {
     setOpenId(null);
-    const ok = await new Promise<boolean>((res) => {
-      const tg = window.Telegram?.WebApp;
-      if (tg?.initData && tg.showConfirm) tg.showConfirm("Удалить сообщение?", res);
-      else res(confirm("Удалить сообщение?"));
-    });
+    const ok = await confirmMsg("Удалить сообщение?");
     if (!ok) return;
     try {
       await api.post(`${base}/${m.id}/delete`);
@@ -351,7 +348,7 @@ export function Chat({ state, me, open, go }: { state: State; me: Me; open?: (en
       <ChallengeSwitch me={me} current={state.enrollmentId} open={open} go={go} />
       <header className="chat-head">
         {/* в Telegram работает системная кнопка «Назад», на сайте своя */}
-        {!inTelegram() && (
+        {backButton() === null && (
           <button className="icon-btn" onClick={() => go("home")} aria-label="Назад">
             <Icon name="back" size={20} weight="bold" />
           </button>

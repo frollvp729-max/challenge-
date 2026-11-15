@@ -6,7 +6,7 @@ import { InputFile } from "grammy";
 import type { User } from "@prisma/client";
 import { prisma } from "../lib/db.js";
 import { config } from "../config.js";
-import { validateInitData } from "../lib/telegramAuth.js";
+import { validateInitData, validateMaxInitData } from "../lib/telegramAuth.js";
 import { createLoginCode, hashPassword, normalizeEmail, verifyWebSession } from "../lib/webAuth.js";
 import { cardEnabled, getCardSettings } from "../services/cardPay.js";
 import { botUsername } from "../bot/index.js";
@@ -26,7 +26,9 @@ import {
   serializeReport,
   type EnrollmentFull,
 } from "../services/enrollments.js";
-import { bot, sendTo } from "../bot/index.js";
+import { bot } from "../bot/index.js";
+import { maxBotUsername, maxEnabled, maxStartLink, upsertMaxUser } from "../max/bot.js";
+import { notifyMessenger } from "../services/notify.js";
 import { esc, openAppKeyboard } from "../bot/messages.js";
 import {
   CHAT_TEXT_MAX,
@@ -69,20 +71,32 @@ export function imageExt(mime: string): string | null {
 
 async function authenticate(req: FastifyRequest): Promise<User> {
   const auth = req.headers.authorization ?? "";
-  // Сайт в обычном браузере: токен, выданный после входа через бота
+  // Сайт в обычном браузере: токен, выданный после входа (почта или через бота)
   if (auth.startsWith("web ")) {
     const id = verifyWebSession(auth.slice(4), config.sessionSecret);
     const user = id ? await prisma.user.findUnique({ where: { id } }) : null;
-    if (!user) throw new HttpError(401, "Войдите через Telegram");
+    if (!user) throw new HttpError(401, "Войдите на сайт ещё раз");
+    if (user.lastPlatform !== "web") return prisma.user.update({ where: { id: user.id }, data: { lastPlatform: "web" } });
+    return user;
+  }
+  // Мини-приложение в Max: initData подписан токеном бота Max так же, как в Telegram
+  if (auth.startsWith("max ")) {
+    const mx = config.maxBotToken ? validateMaxInitData(auth.slice(4), config.maxBotToken) : null;
+    const maxUserId = Number(mx?.id ?? (mx as { user_id?: number } | null)?.user_id);
+    if (!mx || !maxUserId) throw new HttpError(401, "Откройте приложение из Max ещё раз");
+    const user = await upsertMaxUser({ user_id: maxUserId, first_name: mx.first_name, last_name: mx.last_name, username: mx.username }, true);
+    if (!user.photoUrl && mx.photo_url) return prisma.user.update({ where: { id: user.id }, data: { photoUrl: mx.photo_url } });
     return user;
   }
   let tg: { id: number; username?: string; first_name?: string; last_name?: string; photo_url?: string } | null = null;
   if (auth.startsWith("tma ")) {
     tg = validateInitData(auth.slice(4), config.botToken);
+  } else if (config.devAuth && req.headers["x-dev-max"]) {
+    return upsertMaxUser({ user_id: Number(req.headers["x-dev-max"]), first_name: "DevMax" }, true);
   } else if (config.devAuth && req.headers["x-dev-user"]) {
     tg = { id: Number(req.headers["x-dev-user"]), first_name: "Dev" };
   }
-  if (!tg) throw new HttpError(401, "Откройте приложение из Telegram");
+  if (!tg) throw new HttpError(401, "Откройте приложение из Telegram или Max");
   return prisma.user.upsert({
     where: { telegramId: BigInt(tg.id) },
     create: {
@@ -91,8 +105,9 @@ async function authenticate(req: FastifyRequest): Promise<User> {
       firstName: tg.first_name,
       lastName: tg.last_name,
       photoUrl: tg.photo_url,
+      lastPlatform: "telegram",
     },
-    update: { username: tg.username, firstName: tg.first_name, lastName: tg.last_name, photoUrl: tg.photo_url },
+    update: { username: tg.username, firstName: tg.first_name, lastName: tg.last_name, photoUrl: tg.photo_url, lastPlatform: "telegram" },
   });
 }
 
@@ -109,6 +124,8 @@ function serializeUser(u: User) {
   return {
     id: u.id,
     telegramId: u.telegramId === null ? null : String(u.telegramId),
+    /** Подключён ли мессенджер Max */
+    max: u.maxId !== null,
     /** Почта для входа на сайте (если задана) */
     email: u.email,
     emailReminders: u.emailReminders,
@@ -151,6 +168,8 @@ export async function miniappRoutes(app: FastifyInstance) {
     return {
       user: serializeUser(user),
       botUsername: config.botUsername,
+      /** Ник бота Max (пусто, если Max выключен) */
+      maxBotUsername: maxEnabled() ? maxBotUsername() : "",
       primaryEnrollmentId: primary?.id ?? null,
       /** По одному участию на челлендж: между ними участник переключается на главной */
       enrollments: mine.map(({ e, phase, day }) => ({
@@ -245,6 +264,7 @@ export async function miniappRoutes(app: FastifyInstance) {
       organizer: user.isOrganizer,
       card: cardEnabled(card) ? card : null,
       hasTelegram: user.telegramId !== null,
+      maxBotUsername: maxEnabled() ? maxBotUsername() : "",
     };
   });
 
@@ -282,8 +302,21 @@ export async function miniappRoutes(app: FastifyInstance) {
     if (user.telegramId !== null) throw new HttpError(400, "Telegram уже подключён");
     const bot = botUsername();
     if (!bot) throw new HttpError(503, "Бот сейчас недоступен");
-    const code = createLoginCode(user.id);
+    // из Max за оплатой: после подключения бот сразу покажет оплату этого челленджа
+    const chId = Number(((req.body ?? {}) as { challengeId?: number }).challengeId) || null;
+    const ch = chId ? await prisma.challenge.findUnique({ where: { id: chId }, select: { slug: true } }) : null;
+    const code = createLoginCode(user.id, ch?.slug);
     return { code, url: `https://t.me/${bot}?start=login_${code}` };
+  });
+
+  /** Подключить Max к аккаунту: ссылка на бота Max, бот спросит подтверждение */
+  app.post("/account/max-link", async (req) => {
+    const user = req.tgUser!;
+    if (user.maxId !== null) throw new HttpError(400, "Max уже подключён");
+    const code = createLoginCode(user.id);
+    const url = maxStartLink(`login_${code}`);
+    if (!maxEnabled() || !url) throw new HttpError(503, "Бот Max сейчас недоступен");
+    return { code, url };
   });
 
   /** Напоминания на почту: включить или выключить */
@@ -505,7 +538,7 @@ export async function miniappRoutes(app: FastifyInstance) {
 
     // «Вам ответили» — бот присылает уведомление автору исходного сообщения
     const target = replyTo?.user;
-    if (target && target.id !== user.id && !target.botBlocked && shouldNotify(target.id)) {
+    if (target && target.id !== user.id && shouldNotify(target.id)) {
       const targetEnrollment = await prisma.enrollment.findFirst({
         where: { userId: target.id, stream: { challengeId }, status: { in: ["ACTIVE", "COMPLETED"] } },
         orderBy: { startDate: "desc" },
@@ -513,8 +546,8 @@ export async function miniappRoutes(app: FastifyInstance) {
       if (targetEnrollment) {
         const who = esc(user.displayName || user.firstName || "Участник");
         const what = esc(chatSnippet(msg));
-        void sendTo(
-          target.telegramId,
+        void notifyMessenger(
+          target,
           `💬 <b>${who}</b> ответил(а) вам в чате «${esc(e.stream.challenge.title)}»:\n\n${what}`,
           openAppKeyboard("ОТКРЫТЬ ЧАТ", { screen: "chat", enrollment: String(targetEnrollment.id) }),
         ).catch(() => undefined);

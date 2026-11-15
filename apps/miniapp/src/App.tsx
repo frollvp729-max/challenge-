@@ -1,5 +1,6 @@
+import { backButton, maxStartParams } from "./platform";
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { api, inTelegram, needsLogin, logout, setUnauthorizedHandler, type Me, type State } from "./api";
+import { api, inMessenger, needsLogin, logout, setUnauthorizedHandler, type Me, type State } from "./api";
 import { Icon, type IconName } from "./icons";
 import { Catalog, Final, Home, Leaderboard, Onboarding, Profile, Progress, Rewards, Rules, Today } from "./screens";
 import { theme } from "./theme";
@@ -36,7 +37,7 @@ function TabBar({ screen, go, deskOnly }: { screen: Screen; go: (s: Screen) => v
           </button>
         );
       })}
-      {!inTelegram() && (
+      {!inMessenger() && (
         <button className="tab tab-logout" onClick={logout}>
           <Icon name="logout" size={24} weight={theme.tabWeight} />
           <span>Выйти</span>
@@ -64,9 +65,13 @@ function saveEnrollment(id: number) {
 }
 
 const query = new URLSearchParams(location.search);
-const initialScreen = (query.get("screen") as Screen | null) ?? "home";
+// в Max экран и участие приходят стартовым параметром (max.ru/<бот>?startapp=chat_e12)
+const fromMax = maxStartParams();
+const SCREENS: Screen[] = ["home", "catalog", "today", "progress", "leaderboard", "rewards", "rules", "profile", "final", "chat"];
+const asked = (query.get("screen") ?? fromMax.screen ?? "home") as Screen;
+const initialScreen: Screen = SCREENS.includes(asked) ? asked : "home";
 /** Ссылка из уведомления бота может указать, какое участие открыть (например, чат другого челленджа) */
-const initialEnrollment = Number(query.get("enrollment")) || null;
+const initialEnrollment = Number(query.get("enrollment")) || fromMax.enrollment || null;
 
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -102,9 +107,19 @@ export function App() {
     if (!login && !reset) void load();
   }, [load, login, reset]);
 
-  // Кнопка «Назад» Telegram возвращает на главный экран с внутренних экранов (у вкладок есть нижнее меню)
+  // оплатили в другом приложении (Telegram, Tribute) и вернулись: подтягиваем открывшийся челлендж
   useEffect(() => {
-    const bb = window.Telegram?.WebApp.BackButton;
+    if (login || reset || state) return;
+    const onShow = () => {
+      if (!document.hidden) void load();
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
+  }, [load, login, reset, state]);
+
+  // Кнопка «Назад» Telegram и Max возвращает на главный экран с внутренних экранов (у вкладок есть нижнее меню)
+  useEffect(() => {
+    const bb = backButton();
     if (!bb) return;
     const back = () => setScreen("home");
     if (isTab(screen)) bb.hide();

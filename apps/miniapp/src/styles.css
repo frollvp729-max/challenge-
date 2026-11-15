@@ -2041,3 +2041,77 @@ input[type="password"] {
   display: flex;
   flex-direction: column;
 }
+
+/* Три способа на экране входа: сайт, Telegram, Max */
+.seg-3 button {
+  gap: 6px;
+  padding: 12px 4px;
+  font-size: 14px;
+}
+@media (max-width: 360px) {
+  .seg-3 button svg {
+    display: none;
+  }
+}
+
+/* Окно подтверждения (в Max системные окна браузера могут не появляться) */
+.dlg {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.35);
+}
+.dlg-box {
+  width: 100%;
+  max-width: 360px;
+  padding: 20px;
+  border-radius: 24px;
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
+}
+.dlg-box p {
+  margin: 0 0 16px;
+  line-height: 1.45;
+}
+.dlg-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.dlg-actions .btn {
+  flex: 1;
+}
+
+/* ================= Планшет (768–1099 px): шире колонка, крупнее меню ================= */
+@media (min-width: 768px) and (max-width: 1099px) {
+  .page {
+    max-width: 680px;
+    padding-left: 24px;
+    padding-right: 24px;
+    padding-top: 28px;
+  }
+  .tabbar {
+    max-width: 656px;
+    bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+  .tab {
+    padding-top: 10px;
+    padding-bottom: 10px;
+    font-size: 13px;
+  }
+  .pin {
+    max-width: 632px;
+    bottom: calc(112px + env(safe-area-inset-bottom));
+  }
+  .page.tabs {
+    padding-bottom: calc(128px + env(safe-area-inset-bottom));
+  }
+  .page.with-pin {
+    padding-bottom: calc(196px + env(safe-area-inset-bottom));
+  }
+}

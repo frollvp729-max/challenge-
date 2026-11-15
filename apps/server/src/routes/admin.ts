@@ -6,13 +6,12 @@ import { safeEqual, signAdminToken, verifyAdminToken } from "../lib/telegramAuth
 import { localDate } from "../lib/dates.js";
 import { challengeLeaderboard, currentDayOf, displayNameOf, grantAccess, recomputeEnrollment } from "../services/enrollments.js";
 import { enrollPaidUsers } from "../services/payments.js";
-import { sendTo } from "../bot/index.js";
 import { esc, openAppKeyboard, paidMessage } from "../bot/messages.js";
 import { imageExt, saveUpload } from "./miniapp.js";
 import { CHAT_TEXT_MAX, chatInclude, loadMessages, serializeMessages } from "../services/chat.js";
 import { getCardSettings, saveCardSettings } from "../services/cardPay.js";
 import { normalizeEmail } from "../lib/webAuth.js";
-import { notifyUser } from "../services/notify.js";
+import { notifyMessenger, notifyUser } from "../services/notify.js";
 
 const CHALLENGE_FIELDS = [
   "slug", "title", "tagline", "intro", "rules", "coverUrl", "status", "durationDays", "priceRub", "paymentMode",
@@ -276,6 +275,8 @@ export async function adminRoutes(app: FastifyInstance) {
         userId: e.userId,
         telegramId: e.user.telegramId === null ? null : String(e.user.telegramId),
         email: e.user.email,
+        /** Где человек занимается: Telegram, Max, сайт */
+        platforms: [e.user.telegramId !== null && "Telegram", e.user.maxId !== null && "Max", e.user.email && "сайт"].filter(Boolean) as string[],
         username: e.user.username,
         name: displayNameOf(e.user),
         displayName: e.user.displayName,
@@ -319,7 +320,7 @@ export async function adminRoutes(app: FastifyInstance) {
     else if (res.created && b.notify !== false) {
       const m = paidMessage(res.startDate, user.timezone);
       const text = [`Тебе открыт доступ к челленджу «${esc(ch.title)}».`, ...m.text.split("\n").slice(2)].join("\n");
-      notified = await sendTo(user.telegramId, text, openAppKeyboard("ОТКРЫТЬ ЧЕЛЛЕНДЖ", { enrollment: String(res.enrollment.id) }));
+      notified = await notifyMessenger(user, text, openAppKeyboard("ОТКРЫТЬ ЧЕЛЛЕНДЖ", { enrollment: String(res.enrollment.id) }));
     }
     return {
       enrollmentId: res.enrollment.id,

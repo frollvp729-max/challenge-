@@ -5,6 +5,8 @@ interface Row {
   enrollmentId: number;
   userId: number;
   telegramId: string | null;
+  /** Telegram, Max, сайт */
+  platforms?: string[];
   email?: string | null;
   username: string | null;
   name: string;
@@ -328,7 +330,7 @@ export function Participants({ initialChallenge }: { initialChallenge: string })
       <table>
         <thead>
           <tr>
-            <th>Место</th><th>Telegram ID</th><th>Имя</th><th>Username</th><th>Регистрация</th><th>Челлендж</th><th>Оплата</th>
+            <th>Место</th><th>Telegram ID</th><th>Где</th><th>Имя</th><th>Username</th><th>Регистрация</th><th>Челлендж</th><th>Оплата</th>
             <th>День</th><th>Серия</th><th>Баллы</th><th>Статус</th><th></th>
           </tr>
         </thead>
@@ -337,6 +339,7 @@ export function Participants({ initialChallenge }: { initialChallenge: string })
             <tr key={r.enrollmentId}>
               <td>{r.rank ?? "—"}</td>
               <td>{r.telegramId ?? <span className="muted">{r.email}</span>}</td>
+              <td className="small">{(r.platforms ?? []).join(", ")}</td>
               <td>
                 {r.name}
                 {r.botBlocked && <span className="muted"> (бот заблокирован)</span>}

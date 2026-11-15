@@ -193,8 +193,14 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
   );
 }
 
-/** Вход через Telegram: бот подтверждает, страница ждёт сама. На ПК есть QR-код. */
-function TelegramLogin({ onDone }: { onDone: () => void }) {
+const MESSENGER = {
+  tg: { name: "Telegram", icon: "telegram" as const },
+  max: { name: "Max", icon: "max" as const },
+};
+
+/** Вход через бота Telegram или Max: бот подтверждает, страница ждёт сама. На ПК есть QR-код. */
+function MessengerLogin({ onDone, kind }: { onDone: () => void; kind: "tg" | "max" }) {
+  const M = MESSENGER[kind];
   const [start, setStart] = useState<Start | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
@@ -204,7 +210,7 @@ function TelegramLogin({ onDone }: { onDone: () => void }) {
   // одноразовый код; обновляется, когда истекает
   const fetchCode = async () => {
     try {
-      const s = await api.post<Start>("/web-auth/start");
+      const s = await api.post<Start>(kind === "max" ? "/web-auth/start?via=max" : "/web-auth/start");
       codeRef.current = s.code;
       setStart(s);
       setError(null);
@@ -247,22 +253,22 @@ function TelegramLogin({ onDone }: { onDone: () => void }) {
     };
   }, [start]);
 
-  // ссылка на самого бота: там кнопка, которая открывает приложение внутри Telegram
+  // ссылка на самого бота: там кнопка, которая открывает приложение внутри мессенджера
   const botLink = start?.url.split("?")[0];
 
   return (
     <div className="login-tg">
       <section className="card login-card">
-        <h2 className="card-title">Пользоваться в Telegram</h2>
-        <p className="muted">Приложение откроется прямо в Telegram, задания и напоминания будут приходить от бота.</p>
+        <h2 className="card-title">Пользоваться в {M.name}</h2>
+        <p className="muted">Приложение откроется прямо в {M.name}, задания и напоминания будут приходить от бота.</p>
         <a className={`btn btn-primary wide${botLink ? "" : " is-disabled"}`} href={botLink ?? "#"} target="_blank" rel="noopener noreferrer">
-          <Icon name="telegram" size={22} weight="fill" />
-          Открыть в Telegram
+          <Icon name={M.icon} size={22} weight="fill" />
+          Открыть в {M.name}
         </a>
       </section>
       <section className="card login-card">
-        <h2 className="card-title">Войти на сайт через Telegram</h2>
-        <p className="muted">Если вы уже участвуете через Telegram, войдите тем же аккаунтом: задания, баллы, чат и оплата общие.</p>
+        <h2 className="card-title">Войти на сайт через {M.name}</h2>
+        <p className="muted">Если вы уже участвуете через {M.name}, войдите тем же аккаунтом: задания, баллы, чат и оплата общие.</p>
         {error ? (
           <>
             <p className="login-error">{error}</p>
@@ -281,18 +287,18 @@ function TelegramLogin({ onDone }: { onDone: () => void }) {
               else setOpened(true);
             }}
           >
-            <Icon name="telegram" size={22} weight="fill" />
-            Войти через Telegram
+            <Icon name={M.icon} size={22} weight="fill" />
+            Войти через {M.name}
           </a>
         )}
         {opened && !error && (
           <div className="login-wait">
             <span className="dot-pulse" aria-hidden="true" />
-            Ждём подтверждения в Telegram. Эта страница обновится сама.
+            Ждём подтверждения в {M.name}. Эта страница обновится сама.
           </div>
         )}
         <div className="steps">
-          <Step n={1} icon="telegram" tone="rank" title="Откроется бот" text="Нажмите кнопку выше." />
+          <Step n={1} icon={M.icon} tone="rank" title="Откроется бот" text="Нажмите кнопку выше." />
           <Step n={2} icon="check" tone="good" title="Нажмите «Войти»" text="Бот спросит, вы ли это." />
           <Step n={3} icon="desktop" tone="task" title="Вернитесь сюда" text="Страница сама откроет кабинет." />
         </div>
@@ -309,10 +315,17 @@ function TelegramLogin({ onDone }: { onDone: () => void }) {
 
 /**
  * Первый экран в обычном браузере (ПК, планшет, телефон).
- * Человек сам выбирает: заниматься на сайте (почта и пароль) или в Telegram.
+ * Человек сам выбирает: заниматься на сайте (почта и пароль), в Telegram или в Max.
  */
 export function Login({ onDone }: { onDone: () => void }) {
-  const [way, setWay] = useState<"site" | "tg">("site");
+  const [way, setWay] = useState<"site" | "tg" | "max">("site");
+  const [maxOn, setMaxOn] = useState(false);
+  useEffect(() => {
+    api
+      .get<{ telegram: string; max: string }>("/web-auth/platforms")
+      .then((r) => setMaxOn(Boolean(r.max)))
+      .catch(() => undefined);
+  }, []);
   return (
     <div className="login">
       <div className="login-main">
@@ -322,15 +335,20 @@ export function Login({ onDone }: { onDone: () => void }) {
           <p className="subtitle">30 дней. Каждый день одно простое действие.</p>
         </div>
         <p className="login-ask">Где удобнее заниматься?</p>
-        <div className="seg seg-big">
+        <div className={`seg seg-big${maxOn ? " seg-3" : ""}`}>
           <button className={way === "site" ? "on" : ""} onClick={() => setWay("site")}>
             <Icon name="desktop" size={18} weight="bold" /> На сайте
           </button>
           <button className={way === "tg" ? "on" : ""} onClick={() => setWay("tg")}>
             <Icon name="telegram" size={18} weight="fill" /> В Telegram
           </button>
+          {maxOn && (
+            <button className={way === "max" ? "on" : ""} onClick={() => setWay("max")}>
+              <Icon name="max" size={18} weight="fill" /> В Max
+            </button>
+          )}
         </div>
-        {way === "site" ? <SiteForm onDone={onDone} /> : <TelegramLogin onDone={onDone} />}
+        {way === "site" ? <SiteForm onDone={onDone} /> : <MessengerLogin key={way} kind={way} onDone={onDone} />}
       </div>
     </div>
   );
