@@ -1,7 +1,7 @@
-const tg = () => window.Telegram?.WebApp;
+import { devMax, inMax, inMessenger, maxInitData } from "./platform";
 
-/** Открыто внутри Telegram (Mini App), а не в обычном браузере */
-export const inTelegram = () => Boolean(tg()?.initData);
+const tg = () => window.Telegram?.WebApp;
+export { inMessenger };
 
 /** В браузере без Telegram можно открыть /app/?dev=<telegramId> (если на сервере DEV_AUTH=1) */
 const devUser = new URLSearchParams(location.search).get("dev");
@@ -33,11 +33,12 @@ export function logout() {
 }
 
 /** Нужен экран входа: обычный браузер и нет сессии */
-export const needsLogin = () => !inTelegram() && !devUser && !(webSession() ?? memorySession);
+export const needsLogin = () => !inMessenger() && !devUser && !(webSession() ?? memorySession);
 
 function headers(): Record<string, string> {
   const initData = tg()?.initData;
   if (initData) return { authorization: `tma ${initData}` };
+  if (inMax()) return devMax && !maxInitData() ? { "x-dev-max": devMax } : { authorization: `max ${maxInitData()}` };
   if (devUser) return { "x-dev-user": devUser };
   const session = webSession() ?? memorySession;
   if (session) return { authorization: `web ${session}` };
@@ -58,7 +59,7 @@ export class ApiError extends Error {
 
 async function handle<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && !inTelegram() && !devUser) {
+  if (res.status === 401 && !inMessenger() && !devUser) {
     setWebSession(null);
     onUnauthorized();
   }
@@ -89,6 +90,8 @@ export interface User {
   id: number;
   /** Пусто у аккаунта сайта, к которому не подключён Telegram */
   telegramId: string | null;
+  /** Подключён мессенджер Max */
+  max: boolean;
   /** Почта для входа на сайте, если задана */
   email: string | null;
   /** Присылать напоминания на почту, когда нет Telegram */
@@ -110,6 +113,8 @@ export interface User {
 export interface Me {
   user: User;
   botUsername: string;
+  /** Ник бота Max (пусто, если Max выключен) */
+  maxBotUsername?: string;
   primaryEnrollmentId: number | null;
   enrollments: MyEnrollment[];
 }

@@ -3,44 +3,67 @@ import { prisma } from "../lib/db.js";
 
 export class AccountConflict extends Error {}
 
-interface TgFrom {
+export type Platform = "telegram" | "max";
+
+export interface PlatformUser {
   id: number;
-  username?: string;
+  username?: string | null;
   first_name?: string;
-  last_name?: string;
+  last_name?: string | null;
 }
 
+const LABEL: Record<Platform, string> = { telegram: "Telegram", max: "Max" };
+const ID_FIELD = { telegram: "telegramId", max: "maxId" } as const;
+
 /**
- * Подключить Telegram к аккаунту сайта.
- * Если этот Telegram уже есть в базе отдельным пользователем (открывал бота или оплатил в Tribute),
- * его участия, платежи и сообщения переносятся в аккаунт сайта, а лишняя запись удаляется.
- * Итог: один человек, вход и на сайте (почта и пароль), и в Telegram.
+ * Подключить мессенджер (Telegram или Max) к аккаунту targetId.
+ * Если этот мессенджер уже есть в базе отдельным пользователем (открывал бота или оплатил),
+ * его участия, платежи и сообщения переносятся, а лишняя запись удаляется.
+ * Итог: один человек с общим прогрессом на сайте, в Telegram и в Max.
  */
-export async function linkTelegram(siteUserId: number, from: TgFrom): Promise<User> {
-  const tgId = BigInt(from.id);
-  const site = await prisma.user.findUniqueOrThrow({ where: { id: siteUserId } });
-  if (site.telegramId !== null && site.telegramId !== tgId) {
-    throw new AccountConflict("К этому аккаунту сайта уже подключён другой Telegram");
+export async function linkPlatform(targetId: number, platform: Platform, from: PlatformUser): Promise<User> {
+  const field = ID_FIELD[platform];
+  const otherField = platform === "telegram" ? "maxId" : "telegramId";
+  const pid = BigInt(from.id);
+  let keep = await prisma.user.findUniqueOrThrow({ where: { id: targetId } });
+  if (keep[field] !== null && keep[field] !== pid) {
+    throw new AccountConflict(`К этому аккаунту уже подключён другой ${LABEL[platform]}`);
   }
-  const tgUser = await prisma.user.findUnique({ where: { telegramId: tgId } });
-  if (tgUser && tgUser.id !== site.id) {
-    if (tgUser.email) throw new AccountConflict("Этот Telegram уже подключён к другому аккаунту сайта");
-    await mergeUsers(site.id, tgUser.id);
+  const found = await prisma.user.findUnique({ where: { [field]: pid } as { telegramId: bigint } });
+  let drop: User | null = found && found.id !== keep.id ? found : null;
+  if (drop) {
+    if (drop.email && keep.email) throw new AccountConflict(`Этот ${LABEL[platform]} уже подключён к другому аккаунту сайта`);
+    if (drop[otherField] !== null && keep[otherField] !== null && drop[otherField] !== keep[otherField]) {
+      throw new AccountConflict(`Этот ${LABEL[platform]} уже связан с другим аккаунтом`);
+    }
+    // остаётся аккаунт с почтой (у него вход на сайт), иначе тот, к которому подключаем
+    if (drop.email && !keep.email) [keep, drop] = [drop, keep];
+    await mergeUsers(keep.id, drop.id);
   }
+  const a = keep;
+  const b = drop;
   return prisma.user.update({
-    where: { id: site.id },
+    where: { id: a.id },
     data: {
-      telegramId: tgId,
-      username: from.username ?? tgUser?.username ?? site.username,
-      firstName: site.firstName ?? from.first_name ?? tgUser?.firstName,
-      lastName: site.lastName ?? from.last_name ?? tgUser?.lastName,
-      photoUrl: site.photoUrl ?? tgUser?.photoUrl,
-      displayName: site.displayName ?? tgUser?.displayName,
-      onboarded: site.onboarded || Boolean(tgUser?.onboarded),
-      isOrganizer: site.isOrganizer || Boolean(tgUser?.isOrganizer),
-      botBlocked: false,
+      [field]: pid,
+      [otherField]: a[otherField] ?? b?.[otherField] ?? null,
+      email: a.email ?? b?.email ?? null,
+      passwordHash: a.passwordHash ?? b?.passwordHash ?? null,
+      username: a.username ?? from.username ?? b?.username,
+      firstName: a.firstName ?? from.first_name ?? b?.firstName,
+      lastName: a.lastName ?? from.last_name ?? b?.lastName,
+      photoUrl: a.photoUrl ?? b?.photoUrl,
+      displayName: a.displayName ?? b?.displayName,
+      onboarded: a.onboarded || Boolean(b?.onboarded),
+      isOrganizer: a.isOrganizer || Boolean(b?.isOrganizer),
+      ...(platform === "telegram" ? { botBlocked: false } : { maxBlocked: false }),
     },
   });
+}
+
+/** Подключить Telegram к аккаунту сайта (см. linkPlatform) */
+export function linkTelegram(siteUserId: number, from: PlatformUser): Promise<User> {
+  return linkPlatform(siteUserId, "telegram", from);
 }
 
 /** Перенести всё от пользователя dropId к keepId и удалить dropId */

@@ -76,3 +76,19 @@ export function safeEqual(a: string, b: string): boolean {
   const hb = crypto.createHash("sha256").update(b).digest();
   return crypto.timingSafeEqual(ha, hb);
 }
+
+/**
+ * Проверка initData мини-приложения Max (https://dev.max.ru/docs/webapps/validation):
+ * тот же алгоритм, что в Telegram, ключ — токен бота Max.
+ * Клиенты Max иногда отдают строку, закодированную ещё раз, поэтому пробуем и раскодированный вариант.
+ */
+export function validateMaxInitData(initData: string, botToken: string): TelegramWebAppUser | null {
+  const direct = validateInitData(initData, botToken);
+  if (direct) return direct;
+  try {
+    const once = decodeURIComponent(initData);
+    return once !== initData ? validateInitData(once, botToken) : null;
+  } catch {
+    return null;
+  }
+}

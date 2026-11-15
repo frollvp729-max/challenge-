@@ -3,7 +3,7 @@ import { config } from "../config.js";
 import { prisma } from "../lib/db.js";
 import { esc, introMessage, openAppKeyboard, paidMessage, priceMessage } from "./messages.js";
 import { grantAccess, joinStartDate, primaryEnrollment } from "../services/enrollments.js";
-import { cancelLoginCode, confirmLoginCode, isLoginCodeOpen, linkTargetOf } from "../lib/webAuth.js";
+import { afterSlugOf, cancelLoginCode, confirmLoginCode, isLoginCodeOpen, linkTargetOf } from "../lib/webAuth.js";
 import { AccountConflict, linkTelegram } from "../services/accounts.js";
 
 export const bot: Bot | null = config.botToken ? new Bot(config.botToken) : null;
@@ -92,7 +92,7 @@ export function setupBot() {
       const linking = linkTargetOf(code) !== undefined;
       await ctx.reply(
         linking
-          ? `Подключить этот Telegram к вашему аккаунту на сайте <b>${esc(host)}</b>?\n\nПосле этого челленджи, баллы и оплата будут общими: заходите хоть на сайт, хоть сюда.`
+          ? `Подключить этот Telegram к вашему аккаунту челленджей (сайт <b>${esc(host)}</b> и Max)?\n\nПосле этого челленджи, баллы и оплата будут общими: занимайтесь где удобно.`
           : `Вход на сайт <b>${esc(host)}</b> под вашим аккаунтом Telegram.\n\nНажмите «Войти», если это вы открыли сайт. Если нет, нажмите «Отмена».`,
         {
           parse_mode: "HTML",
@@ -162,11 +162,19 @@ export function setupBot() {
     if (target !== undefined && isLoginCodeOpen(code)) {
       // подключение Telegram к аккаунту сайта
       try {
+        const afterSlug = afterSlugOf(code);
         const user = await linkTelegram(target, ctx.from);
         confirmLoginCode(code, user.id);
         await ctx.answerCallbackQuery("Готово");
-        await ctx.editMessageText("Готово! Telegram подключён. Теперь приложение открывается и здесь, и на сайте.").catch(() => undefined);
-        await ctx.reply("Открыть приложение:", { reply_markup: openAppKeyboard() }).catch(() => undefined);
+        await ctx.editMessageText("Готово! Telegram подключён. Челленджи, баллы и оплата теперь общие везде, где вы занимаетесь.").catch(() => undefined);
+        // пришли из Max за оплатой: сразу показываем оплату через Tribute
+        const ch = afterSlug ? await prisma.challenge.findFirst({ where: { slug: afterSlug, status: "ACTIVE" } }) : null;
+        if (ch?.tributeLink && ch.paymentMode !== "FREE") {
+          const m = priceMessage(ch, joinStartDate(ch, user.timezone));
+          await ctx.reply(`${m.text}\n\nПосле оплаты челлендж откроется и здесь, и в Max.`, { parse_mode: "HTML", reply_markup: m.keyboard }).catch(() => undefined);
+        } else {
+          await ctx.reply("Открыть приложение:", { reply_markup: openAppKeyboard() }).catch(() => undefined);
+        }
       } catch (err) {
         if (!(err instanceof AccountConflict)) throw err;
         cancelLoginCode(code);

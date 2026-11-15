@@ -19,22 +19,11 @@ export function countdownParts(ms: number): [number, number, number, number] {
   return [Math.floor(s / 86400), Math.floor((s % 86400) / 3600), Math.floor((s % 3600) / 60), s % 60];
 }
 
-export function haptic(type: "success" | "error" | "warning") {
-  window.Telegram?.WebApp.HapticFeedback?.notificationOccurred(type);
-}
+export { alertMsg, confirmMsg, haptic } from "./platform";
+import { openUrl } from "./platform";
 
-export function alertMsg(msg: string) {
-  const tg = window.Telegram?.WebApp;
-  if (tg?.initData) tg.showAlert(msg);
-  else alert(msg);
-}
-
-export function openTgLink(url: string) {
-  const tg = window.Telegram?.WebApp;
-  if (tg?.initData && url.startsWith("https://t.me/")) tg.openTelegramLink(url);
-  else if (tg?.initData) tg.openLink(url);
-  else window.open(url, "_blank");
-}
+/** Открыть ссылку (t.me, max.ru или любую) средствами мессенджера или в новой вкладке */
+export const openTgLink = openUrl;
 
 /** Сжать фото перед загрузкой (длинная сторона до 1600px, JPEG) */
 export async function compressImage(file: File): Promise<Blob> {

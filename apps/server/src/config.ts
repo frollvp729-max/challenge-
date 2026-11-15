@@ -16,6 +16,12 @@ export const config = {
   botMode: (process.env.BOT_MODE ?? "polling") as "polling" | "webhook" | "off",
   /** Секрет в пути вебхука Telegram (для BOT_MODE=webhook) */
   botWebhookSecret: process.env.BOT_WEBHOOK_SECRET ?? "",
+  /** Бот в мессенджере Max (пусто — Max выключен) */
+  maxBotToken: process.env.MAX_BOT_TOKEN ?? "",
+  /** Ник бота Max без @, для ссылок max.ru/<ник> */
+  maxBotUsername: process.env.MAX_BOT_USERNAME ?? "",
+  /** Адрес Bot API Max */
+  maxApiUrl: (process.env.MAX_API_URL ?? "https://platform-api2.max.ru").replace(/\/$/, ""),
   /** API-ключ Tribute: им подписываются вебхуки (заголовок trbt-signature) */
   tributeApiKey: process.env.TRIBUTE_API_KEY ?? "",
   adminPassword: process.env.ADMIN_PASSWORD ?? "",
