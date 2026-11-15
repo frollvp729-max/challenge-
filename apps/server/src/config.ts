@@ -21,7 +21,7 @@ export const config = {
   /** Ник бота Max без @, для ссылок max.ru/<ник> */
   maxBotUsername: process.env.MAX_BOT_USERNAME ?? "",
   /** Адрес Bot API Max */
-  maxApiUrl: (process.env.MAX_API_URL ?? "https://platform-api2.max.ru").replace(/\/$/, ""),
+  maxApiUrl: (process.env.MAX_API_URL ?? "https://platform-api.max.ru").replace(/\/$/, ""),
   /** API-ключ Tribute: им подписываются вебхуки (заголовок trbt-signature) */
   tributeApiKey: process.env.TRIBUTE_API_KEY ?? "",
   adminPassword: process.env.ADMIN_PASSWORD ?? "",

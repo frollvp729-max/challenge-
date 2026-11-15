@@ -305,6 +305,13 @@ export async function handleMaxUpdate(u: MaxUpdate) {
   }
 }
 
+/** Текст ошибки с причиной: у fetch failed настоящая причина (сертификат, DNS, таймаут) лежит в cause */
+function errText(err: unknown): string {
+  const e = err as Error & { cause?: { code?: string; message?: string } };
+  const cause = e?.cause ? ` (${e.cause.code ?? e.cause.message ?? String(e.cause)})` : "";
+  return `${e?.message ?? String(err)}${cause}`;
+}
+
 let stopped = false;
 
 /** Запуск бота Max: долгий опрос (long polling), без вебхуков и открытых портов */
@@ -322,7 +329,7 @@ export async function startMaxBot() {
       console.error("Бот Max не запущен: Max не принял MAX_BOT_TOKEN. Проверьте токен в apps/server/.env и перезапустите: docker compose up -d");
       return;
     }
-    console.error("Бот Max: не удалось связаться с Max, пробую дальше", err);
+    console.error("Бот Max: не удалось связаться с Max, пробую дальше", errText(err));
   }
   await maxApi
     .setCommands([
@@ -350,7 +357,7 @@ async function pollLoop() {
         console.error("Бот Max остановлен: Max не принял MAX_BOT_TOKEN.");
         return;
       }
-      console.error(`Бот Max: нет связи с Max, повтор через ${delay / 1000} с`, (err as Error).message);
+      console.error(`Бот Max: нет связи с Max, повтор через ${delay / 1000} с`, errText(err));
       await new Promise((r) => setTimeout(r, delay));
       delay = Math.min(delay * 2, 60000);
     }
