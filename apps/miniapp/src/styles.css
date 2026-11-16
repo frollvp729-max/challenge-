@@ -644,6 +644,20 @@ button {
   padding: 12px 14px;
   margin-top: 14px;
 }
+.task-audio {
+  background: var(--rank-soft);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-top: 14px;
+  margin-bottom: 12px;
+}
+.task-audio .card-head {
+  margin-bottom: 8px;
+}
+.task-audio audio {
+  width: 100%;
+  display: block;
+}
 .task-box .task-text {
   margin: 4px 0 0;
   font-weight: 600;

@@ -332,6 +332,15 @@ function TaskCard({ task, day, total }: { task: DayTask; day: number; total: num
         </span>
       </div>
       <h2 className="task-title big">{task.title}</h2>
+      {task.audioUrl && (
+        <div className="task-audio">
+          <div className="card-head">
+            <IconTile icon="audio" tone="task" size="sm" />
+            <b>Аудиосопровождение</b>
+          </div>
+          <audio controls preload="none" src={task.audioUrl} />
+        </div>
+      )}
       {task.description && <p className="muted task-desc">{task.description}</p>}
       {task.imageUrl && <img className="task-img" src={task.imageUrl} alt="" />}
       {task.task && (

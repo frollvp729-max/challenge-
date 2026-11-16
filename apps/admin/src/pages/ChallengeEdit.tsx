@@ -10,6 +10,7 @@ interface Day {
   task: string;
   hint: string;
   imageUrl: string | null;
+  audioUrl: string | null;
   points: number | null;
   proofType: string;
   proofPrompt: string;
@@ -23,7 +24,7 @@ interface Challenge {
   participants: number;
 }
 
-type FieldDef = [key: string, label: string, kind?: "text" | "area" | "number" | "select" | "image" | "date" | "bool", options?: Array<[string, string]>];
+type FieldDef = [key: string, label: string, kind?: "text" | "area" | "number" | "select" | "image" | "audio" | "date" | "bool", options?: Array<[string, string]>];
 
 const SETTINGS: Array<[string, FieldDef[]]> = [
   [
@@ -67,6 +68,29 @@ const SETTINGS: Array<[string, FieldDef[]]> = [
   ],
 ];
 
+function AudioField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <div className="row">
+        <input value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder="https://… или /app/audio/…mp3" />
+        <label className="btn">
+          Загрузить
+          <input
+            type="file"
+            accept="audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,.mp3,.m4a"
+            hidden
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              if (f) onChange((await api.upload(f)).url);
+            }}
+          />
+        </label>
+      </div>
+      {value && <audio controls preload="none" src={value} style={{ width: "100%", marginTop: 6 }} />}
+    </div>
+  );
+}
+
 function ImageField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="row">
@@ -101,6 +125,7 @@ function Field({ def, value, onChange }: { def: FieldDef; value: any; onChange: 
       </select>
     );
   else if (kind === "image") input = <ImageField value={value} onChange={onChange} />;
+  else if (kind === "audio") input = <AudioField value={value} onChange={onChange} />;
   else if (kind === "bool")
     return (
       <label className="check" key={key}>
@@ -283,6 +308,7 @@ function DayEditor({ day, defaultPoints, onClose, onSaved }: { day: Day; default
         <Field def={["task", "Задание", "area"]} value={d.task} onChange={set("task")} />
         <Field def={["hint", "Подсказка / что считается нарушением", "area"]} value={d.hint} onChange={set("hint")} />
         <Field def={["imageUrl", "Изображение", "image"]} value={d.imageUrl} onChange={set("imageUrl")} />
+        <Field def={["audioUrl", "Аудиосопровождение (mp3 или m4a, до 10 МБ)", "audio"]} value={d.audioUrl} onChange={set("audioUrl")} />
         <label className="field">
           <span>Баллы за выполнение (пусто = {defaultPoints})</span>
           <input type="number" value={d.points} onChange={(e) => set("points")(e.target.value)} />

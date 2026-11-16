@@ -141,6 +141,7 @@ export interface DayTask {
   task: string;
   hint: string;
   imageUrl: string | null;
+  audioUrl?: string | null;
   proofType: "none" | "photo" | "text" | "photo_or_text";
   proofPrompt: string;
   proofRequired: boolean;

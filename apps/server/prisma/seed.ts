@@ -211,6 +211,7 @@ const DRAFTS: Array<[string, string, string]> = [
   ["declutter", "Наведи порядок дома", "Ежедневно убрать/выбросить/организовать одну зону"],
   ["content-30", "Контент 30 дней", "Каждый день публиковать пост/сторис/Reels"],
   ["gratitude-30", "30 дней благодарности", "Каждый день фиксировать 3 вещи, за которые благодарен"],
+  ["breath-30", "30 дней дыхания", "Ежедневные дыхательные практики"],
 ];
 
 const NO_QUIT_TITLE = "30 дней — не сливаюсь";
@@ -323,6 +324,7 @@ async function fillChallenge(content: ChallengeContent, draft?: [string, string]
       proofType: d.proofType ?? "photo_or_text",
       proofPrompt: d.proofPrompt,
       ...(d.checklist ? { checklist: d.checklist } : {}),
+      ...(d.audioUrl ? { audioUrl: d.audioUrl } : {}),
     };
     const key = { challengeId_dayNumber: { challengeId: ch.id, dayNumber } };
     const existing = await prisma.challengeDay.findUnique({ where: key });
@@ -333,6 +335,8 @@ async function fillChallenge(content: ChallengeContent, draft?: [string, string]
       (existing.title === `День ${dayNumber}` || existing.title.startsWith(`День ${dayNumber}:`));
     if (!existing) await prisma.challengeDay.create({ data: { challengeId: ch.id, dayNumber, ...data } });
     else if (placeholder) await prisma.challengeDay.update({ where: key, data });
+    // аудио, добавленное в наполнение позже, — только если в админке его не задавали
+    else if (d.audioUrl && !existing.audioUrl) await prisma.challengeDay.update({ where: key, data: { audioUrl: d.audioUrl } });
   }
 }
 

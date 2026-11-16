@@ -7,7 +7,7 @@ import { localDate } from "../lib/dates.js";
 import { challengeLeaderboard, currentDayOf, displayNameOf, grantAccess, recomputeEnrollment } from "../services/enrollments.js";
 import { enrollPaidUsers } from "../services/payments.js";
 import { esc, openAppKeyboard, paidMessage } from "../bot/messages.js";
-import { imageExt, saveUpload } from "./miniapp.js";
+import { audioExt, imageExt, saveUpload } from "./miniapp.js";
 import { CHAT_TEXT_MAX, chatInclude, loadMessages, serializeMessages } from "../services/chat.js";
 import { getCardSettings, saveCardSettings } from "../services/cardPay.js";
 import { normalizeEmail } from "../lib/webAuth.js";
@@ -18,12 +18,12 @@ const CHALLENGE_FIELDS = [
   "tributeLink", "tributeSubscriptionId", "tributeProductId", "chatLink", "morningHour", "eveningHour", "startDate",
   "pointsDone", "pointsProof", "pointsViolation", "streakSaveCost", "streakSavesAllowed", "sortOrder", "chatEnabled",
 ] as const;
-const DAY_FIELDS = ["title", "description", "task", "hint", "imageUrl", "points", "proofType", "proofPrompt", "proofRequired", "checklist"] as const;
+const DAY_FIELDS = ["title", "description", "task", "hint", "imageUrl", "audioUrl", "points", "proofType", "proofPrompt", "proofRequired", "checklist"] as const;
 const INT_FIELDS = new Set([
   "durationDays", "priceRub", "tributeSubscriptionId", "tributeProductId", "morningHour", "eveningHour",
   "pointsDone", "pointsProof", "pointsViolation", "streakSaveCost", "streakSavesAllowed", "sortOrder", "points",
 ]);
-const NULLABLE = new Set(["startDate", "coverUrl", "tributeLink", "tributeSubscriptionId", "tributeProductId", "chatLink", "imageUrl", "points"]);
+const NULLABLE = new Set(["startDate", "coverUrl", "tributeLink", "tributeSubscriptionId", "tributeProductId", "chatLink", "imageUrl", "audioUrl", "points"]);
 
 /**
  * Человек по @username (только тот, кто уже открывал бота) или по Telegram ID
@@ -232,8 +232,8 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post("/upload", async (req) => {
     const file = await req.file();
     if (!file) throw Object.assign(new Error("Нет файла"), { statusCode: 400 });
-    const ext = imageExt(file.mimetype);
-    if (!ext) throw Object.assign(new Error("Нужна картинка"), { statusCode: 400 });
+    const ext = imageExt(file.mimetype) ?? audioExt(file.mimetype);
+    if (!ext) throw Object.assign(new Error("Нужна картинка или аудио (mp3, m4a)"), { statusCode: 400 });
     const url = await saveUpload(await file.toBuffer(), ext, "media");
     return { url: config.publicUrl + url };
   });

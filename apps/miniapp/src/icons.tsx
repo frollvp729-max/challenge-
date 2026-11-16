@@ -1,4 +1,5 @@
 import {
+  HeadphonesIcon,
   ArrowBendUpLeftIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -53,6 +54,7 @@ const ICONS = {
   back: ArrowLeftIcon,
   reply: ArrowBendUpLeftIcon,
   image: ImageIcon,
+  audio: HeadphonesIcon,
   send: PaperPlaneRightIcon,
   trash: TrashIcon,
   users: UsersThreeIcon,
