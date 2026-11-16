@@ -1,13 +1,13 @@
 """
 Аудиосопровождение челленджа «30 дней дыхания»: 30 треков dayNN.mp3.
 
-Голос — бесплатный офлайн-синтез Piper (голос ru_RU-irina-medium, лицензия свободная),
+Голос — бесплатный офлайн-синтез Piper (голос ru_RU-ruslan-medium, лицензия свободная),
 ритм дыхания — мягкие тоны (вдох — тон поднимается, выдох — опускается), начало и конец — колокольчик.
 
 Запуск (нужны python3, numpy, ffmpeg и пакет piper-tts):
   pip install piper-tts numpy
-  # голос: https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ru_RU-irina-medium.tar.bz2
-  python3 scripts/breath-audio/generate.py --voice /путь/ru_RU-irina-medium.onnx --out apps/miniapp/public/audio/breath
+  # голос: https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ru_RU-ruslan-medium.tar.bz2
+  python3 scripts/breath-audio/generate.py --voice /путь/ru_RU-ruslan-medium.onnx --out apps/miniapp/public/audio/breath
   # только часть дней: --days 1,11
 """
 from __future__ import annotations
@@ -30,8 +30,8 @@ class Voice:
         from piper import PiperVoice, SynthesisConfig
 
         self.v = PiperVoice.load(model)
-        self.cfg = SynthesisConfig(length_scale=1.18, noise_scale=0.6, noise_w_scale=0.7)
-        self.fast = SynthesisConfig(length_scale=1.0, noise_scale=0.6, noise_w_scale=0.7)
+        self.cfg = SynthesisConfig(length_scale=1.3, noise_scale=0.6, noise_w_scale=0.7)
+        self.fast = SynthesisConfig(length_scale=1.1, noise_scale=0.6, noise_w_scale=0.7)
         self.cache: dict[tuple[str, bool], np.ndarray] = {}
 
     def __call__(self, text: str, fast: bool = False) -> np.ndarray:
@@ -163,10 +163,16 @@ class Track:
                     exhale_starts.append(start)
                 if c < voice_cycles:
                     label = cycle_labels[c][k] if cycle_labels and c < len(cycle_labels) else names[ph]
-                    voiced.append((start + 0.05, self.v(label, fast=True)))
+                    clip = self.v(label, fast=True)
+                    voiced.append((start + 0.05, clip))
+                    busy = start + 0.05 + len(clip) / SR + 0.1
                     if d >= 3 and not cycle_labels:
                         for s in range(1, int(d)):
-                            voiced.append((start + s + 0.05, self.v(COUNT[s], fast=True)))
+                            if start + s + 0.05 < busy:
+                                continue  # не накладывать счёт на ещё звучащее название фазы
+                            count = self.v(COUNT[s], fast=True)
+                            voiced.append((start + s + 0.05, count))
+                            busy = start + s + 0.05 + len(count) / SR + 0.05
         for at, clip in voiced:
             a = overlay(a, clip, at)
         extra = list(prompts)
